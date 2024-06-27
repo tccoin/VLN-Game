@@ -1,4 +1,4 @@
-*.pyc
+__pycache__
 .vscode
 dump
 data
@@ -10,3 +10,4 @@ main_vec_env.py
 mobile_sam.pt
 yolov8l-world.pt
 test.py
+human_eval
