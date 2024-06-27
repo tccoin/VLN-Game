@@ -1,0 +1,12 @@
+*.pyc
+.vscode
+dump
+data
+game_distribution
+vector_env
+main_follower.py
+main_test.py
+main_vec_env.py
+mobile_sam.pt
+yolov8l-world.pt
+test.py

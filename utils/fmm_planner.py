@@ -113,7 +113,7 @@ class FMMPlanner():
         subset *= mask
         subset += (1 - mask) * self.fmm_dist.shape[0] ** 2
 
-        if subset[self.du, self.du] < 0.15 * 100 / 5.:  # 25cm
+        if subset[self.du, self.du] < 0.25 * 100 / 5.:  # 25cm
             stop = True
         else:
             stop = False
