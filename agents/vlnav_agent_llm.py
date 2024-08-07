@@ -35,7 +35,7 @@ from utils.compute_similarities import (
     color_by_clip_sim,
     cal_clip_sim
 )
-
+from constants import category_to_id
 from utils.vis import init_vis_image, draw_line, vis_result_fast
 from utils.explored_map_utils import (
     build_full_scene_pcd,
@@ -102,6 +102,7 @@ class VLObjectNav_Agent(ObjectNav_Agent):
             self.init_sim_rotation = quaternion.as_rotation_matrix(agent_state.sensor_states["depth"].rotation)
 
             self.text_queries = observations["instruction"]['text']
+            self.object_category = category_to_id[observations['objectgoal'][0]]
             self.all_objects = []
             self.landmark_data = []       
             
@@ -118,21 +119,27 @@ class VLObjectNav_Agent(ObjectNav_Agent):
                     response_message = chat_with_gpt(self.chat_history_for_llm, 2)
                     self.chat_history_for_llm.append({"role": "assistant", "content": response_message})
                     
+                    generated_text = ast.literal_eval(response_message)
+                    ground_json = generated_text["command"]["args"]["ground_json"]
+                    self.target_data = ground_json["target"]["phrase"]
+                    print("target_data: ", self.target_data)
+                    if "landmark" in ground_json:
+                        self.landmark_data.append(ground_json["landmark"]["phrase"])
+                        self.all_objects.append(ground_json["landmark"]["phrase"])
+                        print("landmark_data: ", self.landmark_data)
                     
                 elif self.args.vln_mode == "llm_game":
-                    self.equ_ranking = Equilibrium_Ranking(self.text_queries)
+                    self.equ_ranking = Equilibrium_Ranking(self.text_queries, self.object_category)
                     response_message = self.equ_ranking.response_message
 
-                generated_text = ast.literal_eval(response_message)
-                ground_json = generated_text["command"]["args"]["ground_json"]
-                self.target_data = ground_json["target"]["phrase"]
-                print("target_data: ", self.target_data)
-                if "landmark" in ground_json:
-                    for landmark in ground_json["landmark"].values():
-                        if "phrase" in landmark:
-                            self.landmark_data.append(landmark["phrase"])
-                        self.all_objects.append(landmark["phrase"])
-                    print("landmark_data: ", self.landmark_data)
+                    ground_json = ast.literal_eval(response_message)
+                    self.target_data = ground_json["target"]
+                    print("target_data: ", self.target_data)
+                    if "landmark" in ground_json:
+                        for landmark in ground_json["landmark"]:
+                            self.landmark_data.append(landmark)
+                            self.all_objects.append(landmark)
+                        print("landmark_data: ", self.landmark_data)
                     
             self.all_objects.append(self.target_data)
             # for key, value in self.landmark_data.items():
@@ -299,7 +306,7 @@ class VLObjectNav_Agent(ObjectNav_Agent):
         if not send_queue.empty():
             text_input, self.is_running = send_queue.get()
             if text_input is not None:
-                self.text_queries = text_input
+                self.target_data = text_input
             # print("self.text_queries: ", self.text_queries)
 
         clip_time = time.time()
@@ -308,9 +315,15 @@ class VLObjectNav_Agent(ObjectNav_Agent):
         total_similarities = []
         candidate_target = []
         candidate_landmarks = {}
+        clip_candidate_objects = []
         candidate_id = []
-        similarity_threshold = 0.29
+        clip_candidate_objects_id = []
+        similarity_threshold = 0.27
+        det_threshold = 0.8
         similarities = None
+        
+        if self.object_category == "chair":
+            similarity_threshold = 0.25
 
         if len(self.objects) > 0:
             self.objects, target_similarities = color_by_clip_sim("looks like a " + self.target_data, 
@@ -318,22 +331,38 @@ class VLObjectNav_Agent(ObjectNav_Agent):
                                                         self.clip_model, 
                                                         self.clip_tokenizer)
             candidate_target = [self.objects[i] for i in range(len(self.objects)) 
-                                if (target_similarities[i] > similarity_threshold and \
+                                if ((target_similarities[i] > similarity_threshold and \
                                     self.objects[i]['num_detections'] > 2) \
                                     or \
-                                    max(self.objects[i]['conf']) > 0.75]
+                                    max(self.objects[i]['conf']) > det_threshold) and \
+                                    (self.objects[i]['class_name'][np.argmax(self.objects[i]['conf'])] in self.target_data )]
             
             candidate_id = [i for i in range(len(self.objects)) 
-                                if (target_similarities[i] > similarity_threshold and \
+                                if ((target_similarities[i] > similarity_threshold and \
                                     self.objects[i]['num_detections'] > 2) \
                                     or \
-                                    max(self.objects[i]['conf']) > 0.75]
- 
+                                    max(self.objects[i]['conf']) > det_threshold) and \
+                                    (self.objects[i]['class_name'][np.argmax(self.objects[i]['conf'])] in self.target_data)]
+            
+            clip_candidate_objects = [self.objects[i] for i in range(len(self.objects)) 
+                                if ((target_similarities[i] > similarity_threshold - 0.02 and \
+                                    self.objects[i]['num_detections'] > 2 and self.objects[i]['num_detections'] < 20) \
+                                    ) and \
+                                    (self.objects[i]['class_name'][np.argmax(self.objects[i]['conf'])] in self.target_data )]
+
+            clip_candidate_objects_id = [i for i in range(len(self.objects)) 
+                                if ((target_similarities[i] > similarity_threshold - 0.02 and \
+                                    self.objects[i]['num_detections'] > 2 and self.objects[i]['num_detections'] < 20) \
+                                    ) and \
+                                    (self.objects[i]['class_name'][np.argmax(self.objects[i]['conf'])] in self.target_data )]
+
+            
+            
             if len(candidate_target) > 0:
                 print("find targets: " + self.target_data, len(candidate_target), " ", max(target_similarities.cpu().numpy()))
             total_candidate_objects.extend(candidate_target)
             total_similarities.append(target_similarities)
-            print("max_sim target: ", max(target_similarities.cpu().numpy()))
+            # print("max_sim target: ", max(target_similarities.cpu().numpy()))
             
             if len(self.landmark_data) == 0:
                 self.candidate_objects = candidate_target
@@ -346,9 +375,17 @@ class VLObjectNav_Agent(ObjectNav_Agent):
                                                                             color_set = False)
     
                     candidate_landmarks[landmark] = [self.objects[i] for i in range(len(self.objects)) 
-                                    if landmark_similarities[i] > similarity_threshold]
+                                    if ((landmark_similarities[i] > similarity_threshold and \
+                                    self.objects[i]['num_detections'] > 2) \
+                                    or \
+                                    max(self.objects[i]['conf']) > det_threshold) and \
+                                    (self.objects[i]['class_name'][np.argmax(self.objects[i]['conf'])] in landmark)]
                     candidate_id.extend([i for i in range(len(self.objects)) 
-                                    if landmark_similarities[i] > similarity_threshold])
+                                    if ((landmark_similarities[i] > similarity_threshold and \
+                                    self.objects[i]['num_detections'] > 2) \
+                                    or \
+                                    max(self.objects[i]['conf']) > det_threshold) and \
+                                    (self.objects[i]['class_name'][np.argmax(self.objects[i]['conf'])] in landmark )])
                     
                     # if len(candidate_landmarks[landmark]) > 0:
                     print("find ", landmark , ": ", len(candidate_landmarks[landmark]), " ", max(landmark_similarities.cpu().numpy()))
@@ -374,7 +411,8 @@ class VLObjectNav_Agent(ObjectNav_Agent):
                                 print("Found candidate_objects!")  
                                 
                         elif self.args.vln_mode == "llm_game":
-                            candidate_index = self.equ_ranking.equilibrium_search(user_prompt)
+                            # candidate_index = self.equ_ranking.generator_search(user_prompt)
+                            candidate_index = self.equ_ranking.equilibrium_search(user_prompt, len(candidate_target))
                             if candidate_index == len(candidate_target) : # -1: not sure
                                 print("reject all candidates")
                             else:
@@ -420,7 +458,18 @@ class VLObjectNav_Agent(ObjectNav_Agent):
                 stg = f_pos[0]
 
             self.goal_map = np.zeros((self.local_w, self.local_h))
-            if len(target_point_list) > 0:
+            if len(clip_candidate_objects) > 0 :
+                target_similarities = target_similarities.cpu().numpy()
+                
+                max_conf = [target_similarities[id] for id in clip_candidate_objects_id]
+                max_index = np.argmax(max_conf)
+                self.goal_map[self.object_map_building(clip_candidate_objects[max_index]['pcd'])] = 1
+                self.nearest_point = self.find_nearest_point_cloud(clip_candidate_objects[max_index]['pcd'], camera_position)
+                
+                if self.greedy_stop_count > 20:
+                    self.objects[clip_candidate_objects_id[max_index]]['num_detections'] = 21
+                    
+            elif len(target_point_list) > 0:
                 self.no_frontiers_count = 0
                 simi_max_score = []
                 for i in range(len(target_point_list)):
@@ -436,7 +485,7 @@ class VLObjectNav_Agent(ObjectNav_Agent):
                 global_item = 0
                 if len(simi_max_score) > 0:
                     # print(simi_max_score)
-                    if max(simi_max_score) > 0.22:
+                    if max(simi_max_score) > 0.24:
                         global_item = simi_max_score.index(max(simi_max_score))
                         
                 if np.array_equal(stg, target_point_list[global_item]) and target_score[global_item] < 30:
@@ -451,12 +500,22 @@ class VLObjectNav_Agent(ObjectNav_Agent):
                     self.greedy_stop_count = 0
                     
                 self.goal_map[target_point_list[global_item][0], target_point_list[global_item][1]] = 1
-            elif len(self.objects) > 0 and self.l_step > 200:
+            elif len(self.objects) > 0:
                 self.no_frontiers_count += 1
-                self.goal_map = np.zeros((self.local_w, self.local_h))
-                max_index = np.argmax(similarities)
-                self.goal_map[self.object_map_building(self.objects[max_index]['pcd'])] = 1
-                self.nearest_point = self.find_nearest_point_cloud(self.objects[max_index]['pcd'], camera_position)
+                if self.args.vln_mode == "clip":
+                    self.goal_map = np.zeros((self.local_w, self.local_h))
+                    max_index = np.argmax(similarities)
+                    self.goal_map[self.object_map_building(self.objects[max_index]['pcd'])] = 1
+                    self.nearest_point = self.find_nearest_point_cloud(self.objects[max_index]['pcd'], camera_position)
+                else:
+                    if len(candidate_target) == 0:
+                        target_similarities = target_similarities.cpu().numpy()
+                        candidate_id = [np.argmax(target_similarities)]
+                        
+                        candidate_target = [self.objects[np.argmax(target_similarities)] ]
+                        
+                
+                        
             
                 if self.no_frontiers_count > 5 and max(similarities) > 0.25 :
                     self.found_goal = True
@@ -561,7 +620,8 @@ class VLObjectNav_Agent(ObjectNav_Agent):
 
         # transfer_time = time.time()
         # time_step_info += 'transfer data time:%.3fs\n'%(transfer_time - dd_map_time)
-
+        # cv2.imshow("episode_n {}".format(self.episode_n), self.annotated_image)
+        # cv2.waitKey(1)
         # print(time_step_info)
 
         return action
@@ -571,16 +631,29 @@ class VLObjectNav_Agent(ObjectNav_Agent):
 
     def Bbox_prompt(self, candidate_objects, candidate_landmarks):
         # Target object        
-        target_bbox = [{"centroid": [round(ele, 1) for ele in obj['bbox'].get_center()], 
-                        "extent": [round(ele, 1) for ele in obj['bbox'].get_extent()]} 
-                        for obj in candidate_objects ]
+        # target_bbox = [{"centroid": [round(ele, 1) for ele in obj['bbox'].get_center()], 
+        #                 "extent": [round(ele, 1) for ele in obj['bbox'].get_extent()]} 
+        #                 for obj in candidate_objects ]
+        
+        target_bbox = [{"centroid": [round(obj['bbox'].get_center()[0], 1), 
+                             round(obj['bbox'].get_center()[2], 1), 
+                             round(obj['bbox'].get_center()[1], 1)], 
+                "extent": [round(obj['bbox'].get_extent()[0], 1), 
+                           round(obj['bbox'].get_extent()[2], 1), 
+                           round(obj['bbox'].get_extent()[1], 1)]} 
+                for obj in candidate_objects]
+
 
         # Landmark objects
         landmark_bbox = {}
         for k,candidate_landmark in candidate_landmarks.items():
-            landmark_bbox[k] = [{"centroid": [round(ele, 1) for ele in ldmk['bbox'].get_center()], 
-                            "extent": [round(ele, 1) for ele in ldmk['bbox'].get_extent()]}  
-                            for ldmk in candidate_landmark]
+            landmark_bbox[k] = [{"centroid": [round(ldmk['bbox'].get_center()[0], 1), 
+                                    round(ldmk['bbox'].get_center()[2], 1), 
+                                    round(ldmk['bbox'].get_center()[1], 1)],  
+                                "extent": [round(ldmk['bbox'].get_extent()[0], 1), 
+                                    round(ldmk['bbox'].get_extent()[2], 1), 
+                                    round(ldmk['bbox'].get_extent()[1], 1)]}  
+                                for ldmk in candidate_landmark]
             
         # inference the target if all the objects are found
         evaluation = {}

@@ -18,7 +18,7 @@ def get_args():
                         help='path to dump models and log (default: ./tmp/)')
     parser.add_argument('--exp_name', type=str, default="objectnav-yolo",
                         help='experiment name (default: exp1)')
-    parser.add_argument('-v', '--visualize', type=int, default=0,
+    parser.add_argument('-v', '--visualize', type=int, default=1,
                         help="""1: Render the observation and
                                    the predicted semantic map,
                                 2: Render the observation with semantic
@@ -38,10 +38,8 @@ def get_args():
     
     # Environment, dataset and episode specifications
     parser.add_argument("--task_config", type=str,
-                        default="objectnav_hm3d.yaml",
+                        default="vlobjectnav_hm3d.yaml",
                         help="path to config yaml containing task information")
-    parser.add_argument("--split", type=str, default="val",
-                        help="dataset split (train | val_seen | val_unseen) ")
     parser.add_argument('--episode_count', type=int, default=-1)
 
     # Model Hyperparameters
@@ -86,12 +84,13 @@ def get_args():
 
 
     # LLM setting
-    parser.add_argument('--vln_mode', type=str, default="llm",
-                        choices=['clip', 'llm', "llm_game"])
-    parser.add_argument('--gpt_type', type=int, default=2,
+    parser.add_argument('--vln_mode', type=str, default="vlm_generator",
+                        choices=['clip', 'llm', 'vlm', 'vlm_generator', "vlm_game"])
+    parser.add_argument('--gpt_type', type=int, default=3,
                         help="""0: text-davinci-003
                                 1: gpt-3.5-turbo
                                 2: gpt-4o
+                                3: gpt-4o-mini
                                 (default: 1)""")
                                 
     parser.add_argument('--load', type=str, default="0",

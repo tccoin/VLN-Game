@@ -3,12 +3,18 @@ import torch
 import torch.nn.functional as F
 import ast
 import concurrent.futures
-
-from utils.chat_utils import chat_with_gpt
+from collections import Counter
+from utils.chat_utils import chat_with_gpt, chat_with_gpt4v
 from agents.system_prompt import (
     Instruction_system_prompt_Generator_correct,
     Instruction_system_prompt_Generator_incorrect,
     Instruction_system_prompt_Discriminator,
+    Parsing_prompt,
+    System_prompt_Generator_correct,
+    System_prompt_Generator_incorrect,
+    System_prompt_Discriminator,
+    discriminator_prompt,
+    generator_prompt
     )
 
 
@@ -20,7 +26,7 @@ class Equilibrium_Ranking():
     
     Args:
     """
-    def __init__(self, text_queries):
+    def __init__(self, text_queries, logger=None):
         
         # Hyperparameters
         self.lambda_G = 0.1
@@ -29,81 +35,121 @@ class Equilibrium_Ranking():
         self.eta_D = 0.1
         self.iterations = 500
         
-        self.chat_history_for_generator_correct = []
-        self.chat_history_for_generator_incorrect = []
-        self.chat_history_for_generator_discriminator = []
+        # target_hint = "Hint: the target category is " + object_category
         
-        self.chat_history_for_generator_correct.append({"role": "system", "content": Instruction_system_prompt_Generator_correct})
+        self.text_description = text_queries #+ target_hint
+        message = []
+        message.append({"role": "system", "content": Parsing_prompt})
+        message.append({"role": "user", "content": self.text_description})
+        self.response_message = chat_with_gpt(message)
         
-        self.chat_history_for_generator_correct.append({"role": "user", "content": text_queries})
+        if logger != None:
+            self.logger = logger
         
-        self.response_message = chat_with_gpt(self.chat_history_for_generator_correct, 2)
-        self.chat_history_for_generator_correct.append({"role": "assistant", "content": self.response_message})
+    def equilibrium_search(self, base64_image_list, candidate_id):
+
+        self.candidate_id = candidate_id
+        chat_history_for_generator_correct = []
+        chat_history_for_generator_discriminator = []
         
-        ground_history = self.chat_history_for_generator_correct[-2:]
-        
-        self.chat_history_for_generator_incorrect.append({"role": "system", "content": Instruction_system_prompt_Generator_incorrect})
-        self.chat_history_for_generator_incorrect.extend(ground_history)
-        self.chat_history_for_generator_discriminator.append({"role": "system", "content": Instruction_system_prompt_Discriminator})
-        self.chat_history_for_generator_discriminator.extend(ground_history)
-        
-    def equilibrium_search(self, user_prompt):
+        chat_history_for_generator_correct.append({"role": "system", "content": generator_prompt})
+        chat_history_for_generator_discriminator.append({"role": "system", "content": discriminator_prompt})
         
         # generate initial policies 
         # Get generative probabilities for "correct"
-        self.chat_history_for_generator_correct.append({"role": "user", "content": user_prompt})
-        generative_probabilities_correct = self._get_generative_probabilities(self.chat_history_for_generator_correct)
+        image_contents = []
+        image_contents.append({
+          "type": "text",
+          "text": self.text_description,
+        })
+        for base64_image in base64_image_list:
+            image_contents.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{base64_image}"
+                }
+            })
         
-        # Get generative probabilities for "incorrect"
-        self.chat_history_for_generator_incorrect.append({"role": "user", "content": user_prompt})
-        generative_probabilities_incorrect = self._get_generative_probabilities(self.chat_history_for_generator_incorrect)
+        chat_history_for_generator_correct.append({"role": "user", "content": image_contents})
+        generative_probabilities_correct = self._get_generative_probabilities(chat_history_for_generator_correct)
         
-        # Get discriminative probabilities for each candidate
-        self.chat_history_for_generator_discriminator.append({"role": "user", "content": user_prompt})
-        discriminative_probabilities = self._get_discriminative_probabilities(self.chat_history_for_generator_discriminator)
+        generative_probabilities_incorrect = [1 - value for value in generative_probabilities_correct]
         
-        plm_y_given_x_v = {
-            'correct': generative_probabilities_correct,
-            'incorrect': generative_probabilities_incorrect
-        }
-        plm_v_given_x_y = discriminative_probabilities
-        
-        
-        pi_G_1 = self._normalize_initial_policy(plm_y_given_x_v, axis=0)
-        pi_D_1 = self._normalize_initial_policy(plm_v_given_x_y, axis=0)
+        if 1 not in generative_probabilities_correct:
+            # Get discriminative probabilities for each candidate
+            discriminative_probabilities = self._get_discriminative_probabilities(chat_history_for_generator_discriminator, base64_image_list)
+            
+            plm_y_given_x_v = {
+                'correct': generative_probabilities_correct,
+                'incorrect': generative_probabilities_incorrect
+            }
+            plm_v_given_x_y = discriminative_probabilities
+            
+            
+            pi_G_1 = self._normalize_initial_policy(plm_y_given_x_v, axis=0)
+            pi_D_1 = self._normalize_initial_policy(plm_v_given_x_y, axis=0)
 
-        # Print initial policies
-        print("Initial Generator Policy:", pi_G_1)
-        print("Initial Discriminator Policy:", pi_D_1)
-        
-        v_values = ['correct', 'incorrect']
-        y_values = list(plm_v_given_x_y.keys())
-        
-        # Initialize Q values
-        Q_G = {v: np.zeros(len(y_values)) for v in v_values}
-        Q_D = {y: np.zeros(len(v_values)) for y in y_values}
-        
-        # Equilibrium ranking
-        for t in range(1, self.iterations + 1):
-            # Update Q values
-            for v in v_values:
-                for i, y in enumerate(y_values):
-                    Q_G[v][i] += (1 / (2 * t)) * pi_D_1[y][v_values.index(v)]
+            # Print initial policies
+            print("Initial Generator Policy:", pi_G_1)
+            print("Initial Discriminator Policy:", pi_D_1)
+            
+            v_values = ['correct', 'incorrect']
+            y_values = list(plm_v_given_x_y.keys())
+            
+            # Initialize Q values
+            Q_G = {v: np.zeros(len(y_values)) for v in v_values}
+            Q_D = {y: np.zeros(len(v_values)) for y in y_values}
+            
+            # Equilibrium ranking
+            for t in range(1, self.iterations + 1):
+                # Update Q values
+                for v in v_values:
+                    for i, y in enumerate(y_values):
+                        Q_G[v][i] += (1 / (2 * t)) * pi_D_1[y][v_values.index(v)]
 
-            for y in y_values:
-                for i, v in enumerate(v_values):
-                    Q_D[y][i] += (1 / (2 * t)) * pi_G_1[v][y_values.index(y)]
+                for y in y_values:
+                    for i, v in enumerate(v_values):
+                        Q_D[y][i] += (1 / (2 * t)) * pi_G_1[v][y_values.index(y)]
 
-            # Update policies
-            pi_G = self._update_policy(Q_G, pi_G_1, self.lambda_G, self.eta_G, t)
-            pi_D = self._update_policy(Q_D, pi_D_1, self.lambda_D, self.eta_D, t)
+                # Update policies
+                pi_G = self._update_policy(Q_G, pi_G_1, self.lambda_G, self.eta_G, t)
+                pi_D = self._update_policy(Q_D, pi_D_1, self.lambda_D, self.eta_D, t)
 
-        # Display the final policies
-        print("Final Generator Policy:", pi_G)
-        print("Final Discriminator Policy:", pi_D)
-        
-        return pi_G['correct'].argmax(axis=0)
+            # Display the final policies
+            print("Final Generator Policy:", pi_G)
+            print("Final Discriminator Policy:", pi_D)
+            
+            return pi_G['correct'].argmax(axis=0)
+        else:
+            return generative_probabilities_correct.index(max(generative_probabilities_correct))
                         
+    def generator_search(self, base64_image_list, candidate_id, num_samples=1):
+
+        self.candidate_id = candidate_id
+        
+        chat_history_for_generator_correct = []
+        
+        chat_history_for_generator_correct.append({"role": "system", "content": generator_prompt})
+        
+        # generate initial policies 
+        # Get generative probabilities for "correct"
+        image_contents = []
+        image_contents.append({
+          "type": "text",
+          "text": self.text_description,
+        })
+        for base64_image in base64_image_list:
+            image_contents.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{base64_image}"
+                }
+            })
+        chat_history_for_generator_correct.append({"role": "user", "content": image_contents})
+        generative_probabilities_correct = self._get_generative_probabilities(chat_history_for_generator_correct, num_samples=num_samples)
+        
+        max_index = generative_probabilities_correct.index(max(generative_probabilities_correct))
+        return max_index
 
     # Normalizing initial policies
     def _normalize_initial_policy(self, plm_dict, axis=0):
@@ -120,57 +166,121 @@ class Equilibrium_Ranking():
             updated_pi[key] = np.exp(exponent) / np.sum(np.exp(exponent))
         return updated_pi
 
-    def _get_generative_probabilities(self, chat_history, num_samples=3):
-        probabilities = []
+    def _get_generative_probabilities(self, chat_history, num_samples=5):
+        id_list = []
         responses = []
         with concurrent.futures.ThreadPoolExecutor() as executor:
-                future_to_message = {executor.submit(chat_with_gpt, chat_history): chat_history for _ in range(num_samples)}
-                for future in concurrent.futures.as_completed(future_to_message):
-                    prompt = future_to_message[future]
-                    try:
-                        response = future.result()
-                        responses.append(response)
-                    except Exception as exc:
-                        print(f'{prompt} generated an exception: {exc}')
-                
+            future_to_message = {executor.submit(chat_with_gpt4v, chat_history): chat_history for _ in range(num_samples)}
+            for future in concurrent.futures.as_completed(future_to_message):
+                prompt = future_to_message[future]
+                try:
+                    response = future.result()
+                    responses.append(response)
+                except Exception as exc:
+                    print(f'{prompt} generated an exception: {exc}')
+        # for _ in range(num_samples):
+        #     response = chat_with_gpt4v(chat_history)
+        #     responses.append(response)
+            
         for i, response in enumerate(responses):
+            self.logger.info(response)
             ground_json = ast.literal_eval(response)
-            if ground_json["command"]["name"] == "finish_grounding":
-                probabilities_list = np.array(list(ground_json["command"]["args"]["objects_scores"].values()) )
-                probabilities.append(probabilities_list/np.sum(probabilities_list))
-        return np.sum(np.stack(probabilities), axis = 0)
+            id_list.append(ground_json["object_id"]) 
+            
+        counts = Counter(id_list)
+        total_count = len(id_list)
+        # Calculate the probabilities
+        probabilities = {number: count / total_count for number, count in counts.items()}
+        probabilities_list = []
+        for i in (self.candidate_id + [-1]):
+            if str(i) in probabilities:
+                probabilities_list.append(probabilities[str(i)])
+            else:
+                probabilities_list.append(0)
+
+        return probabilities_list
         
-    def _get_discriminative_probabilities(self, chat_history, num_samples=3):
+    def _get_discriminative_probabilities(self, chat_history, base64_image_list, num_samples=5):
         probabilities = {}
-        responses = []
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-                future_to_prompt = {executor.submit(chat_with_gpt, chat_history): chat_history for _ in range(num_samples)}
-                for future in concurrent.futures.as_completed(future_to_prompt):
-                    prompt = future_to_prompt[future]
-                    try:
-                        response = future.result()
-                        responses.append(response)
-                    except Exception as exc:
-                        print(f'{prompt} generated an exception: {exc}')
-                        
-        for i, response in enumerate(responses):
-            ground_json = ast.literal_eval(response)
-            if ground_json["command"]["name"] == "finish_grounding":
-                discriminate = ground_json["command"]["args"]["objects_discriminate"] 
-                for key, value in discriminate.items():
-                    if value == "accept":
-                        if key not in probabilities:
-                            probabilities[key] = 1 
-                        else:
-                            probabilities[key] += 1
+        for _ in range(num_samples):
+            responses = []
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future_to_prompt = {executor.submit(chat_with_gpt4v, chat_history+self.create_payload(self.text_description, base64_image)): base64_image for base64_image in base64_image_list}
+                    for future in concurrent.futures.as_completed(future_to_prompt):
+                        prompt = future_to_prompt[future]
+                        try:
+                            response = future.result()
+                            responses.append(response)
+                        except Exception as exc:
+                            print(f'{prompt} generated an exception: {exc}')
+                            
+            incorrect_num = 0
+            for i, response in enumerate(responses):
+                self.logger.info(response)
+                ground_json = ast.literal_eval(response)
+                discriminate = ground_json["correctness"] 
+                if discriminate == "correct":
+                    if i not in probabilities:
+                        probabilities[i] = 1 
                     else:
-                        if key not in probabilities:
-                            probabilities[key] = 0
-                        else:
-                            probabilities[key] += 0
-        return {key:[value/num_samples, 1-value/num_samples] for key, value in probabilities.items()}
+                        probabilities[i] += 1
+                else:
+                    incorrect_num += 1
+                    if i not in probabilities:
+                        probabilities[i] = 0
+                    else:
+                        probabilities[i] += 0
+                        
+            if incorrect_num == len(responses): # reject all the objects
+                if -1 not in probabilities:
+                    probabilities[-1] = 1
+                else:
+                    probabilities[-1] += 1
+            else:
+                probabilities[-1] = 0
+                
+                    
+        return {key:[value/num_samples, 1-(value/num_samples)] for key, value in probabilities.items()}
     
-    
+    def discriminate_text(self, id):
+        return "The candidate object {:d} match the user's description. Is it correct?".format(id) + '\n'
+
+    # def create_payload(self, text, base64_image_list):
+    #     image_contents = []
+    #     image_contents.append({
+    #       "type": "text",
+    #       "text": text,
+    #     })
+    #     for base64_image in base64_image_list:
+    #         image_contents.append({
+    #             "type": "image_url",
+    #             "image_url": {
+    #                 "url": f"data:image/jpeg;base64,{base64_image}"
+    #             }
+    #         })
+    #     return [
+    #             {
+    #                 "role": "user",
+    #                 "content": image_contents
+    #             }
+    #         ]
 
 
-
+    def create_payload(self, text, base64_image):
+        image_contents = []
+        image_contents.append({
+          "type": "text",
+          "text": text,
+        })
+        image_contents.append({
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:image/jpeg;base64,{base64_image}"
+            }
+        })
+        return [
+                {
+                    "role": "user",
+                    "content": image_contents
+                }
+            ]

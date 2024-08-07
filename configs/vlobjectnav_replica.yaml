@@ -28,21 +28,20 @@ SIMULATOR:
     MIN_DEPTH: 0.0
     MAX_DEPTH: 5.0
     POSITION: [0, 0.88, 0]
-  SCENE_DATASET: "data/scene_datasets/hm3d/hm3d_annotated_basis.scene_dataset_config.json"
 TASK:
   TYPE: ObjectNav-v1
   POSSIBLE_ACTIONS: ["STOP", "MOVE_FORWARD", "TURN_LEFT", "TURN_RIGHT", "LOOK_UP", "LOOK_DOWN"]
-  SENSORS: ['INSTRUCTION_SENSOR', 'GPS_SENSOR', 'COMPASS_SENSOR']
+  SENSORS: ['OBJECTGOAL_SENSOR', 'GPS_SENSOR', 'COMPASS_SENSOR']
   GOAL_SENSOR_UUID: objectgoal
   MEASUREMENTS: ['DISTANCE_TO_GOAL', 'SUCCESS', 'SPL']
   DISTANCE_TO_GOAL:
     DISTANCE_TO: VIEW_POINTS
   SUCCESS:
-    SUCCESS_DISTANCE: 0.25
+    SUCCESS_DISTANCE: 0.1
 
 DATASET:
-  TYPE: VLObjectNav-v1
+  TYPE: ObjectNav-v1
   SPLIT: val
-  DATA_PATH: "data/datasets/vlobjectnav_hm3d_v4/{split}/{split}.json.gz"
+  DATA_PATH: "data/datasets/objectnav_replica/v1/{split}/{split}.json.gz"
   SCENES_DIR: "data/scene_datasets"
 

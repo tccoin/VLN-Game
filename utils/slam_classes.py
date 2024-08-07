@@ -121,17 +121,18 @@ class MapObjectList(DetectionList):
         for obj in self:
             s_obj_dict = copy.deepcopy(obj)
             
-            # s_obj_dict['clip_ft'] = to_numpy(s_obj_dict['clip_ft'])
+            s_obj_dict['clip_ft'] = to_numpy(s_obj_dict['clip_ft'])
             # s_obj_dict['text_ft'] = to_numpy(s_obj_dict['text_ft'])
             
             s_obj_dict['pcd_np'] = np.asarray(s_obj_dict['pcd'].points)
             # s_obj_dict['bbox_np'] = np.asarray(s_obj_dict['bbox'].get_center())
+            # s_obj_dict['bbox_np'] = np.asarray([s_obj_dict['bbox'].get_min_bound(), s_obj_dict['bbox'].get_max_bound()])
             s_obj_dict['bbox_np'] = np.asarray([s_obj_dict['bbox'].min_bound, s_obj_dict['bbox'].max_bound])
             s_obj_dict['pcd_color_np'] = np.asarray(s_obj_dict['pcd'].colors)
             
             del s_obj_dict['pcd']
             del s_obj_dict['bbox']
-            del s_obj_dict['clip_ft'] 
+            # del s_obj_dict['clip_ft'] 
             # del s_obj_dict['text_ft'] 
             # del s_obj_dict['similarity']
             
@@ -149,8 +150,9 @@ class MapObjectList(DetectionList):
             
             new_obj['pcd'] = o3d.geometry.PointCloud()
             new_obj['pcd'].points = o3d.utility.Vector3dVector(new_obj['pcd_np'])
-            new_obj['bbox'] = o3d.geometry.OrientedBoundingBox.create_from_points(
-                o3d.utility.Vector3dVector(new_obj['bbox_np']))
+            # new_obj['bbox'] = o3d.geometry.OrientedBoundingBox.create_from_points(
+                # o3d.utility.Vector3dVector(new_obj['bbox_np']))
+            new_obj['bbox'] = o3d.geometry.OrientedBoundingBox.create_from_axis_aligned_bounding_box(o3d.geometry.AxisAlignedBoundingBox(new_obj['bbox_np'][0], new_obj['bbox_np'][1]))
             new_obj['bbox'].color = new_obj['pcd_color_np'][0]
             new_obj['pcd'].colors = o3d.utility.Vector3dVector(new_obj['pcd_color_np'])
             

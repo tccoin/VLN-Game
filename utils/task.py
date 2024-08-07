@@ -94,6 +94,7 @@ class VLObjectNavEpisode(NavigationEpisode):
         trajectory_id: id of ground truth trajectory path.
     """
     instruction_text: str
+    object_category: Optional[str] = None
 
 @registry.register_sensor(name="InstructionSensor")
 class InstructionSensor(Sensor):
@@ -122,6 +123,7 @@ class InstructionSensor(Sensor):
 @registry.register_dataset(name="VLObjectNav-v1")
 class VLObjectNavDatasetV1(PointNavDatasetV1):
     r"""Class inherited from ObjectNavDatasetV1 that loads Object Navigation dataset."""
+    category_to_task_category_id: Dict[str, int]
     episodes: List[VLObjectNavEpisode] = []  # type: ignore
     content_scenes_path: str = "{data_path}/content/{scene}.json.gz"
 
@@ -151,7 +153,12 @@ class VLObjectNavDatasetV1(PointNavDatasetV1):
         deserialized = json.loads(json_str)
         if CONTENT_SCENES_PATH_FIELD in deserialized:
             self.content_scenes_path = deserialized[CONTENT_SCENES_PATH_FIELD]
-
+            
+        # if "category_to_task_category_id" in deserialized:
+        #     self.category_to_task_category_id = deserialized[
+        #         "category_to_task_category_id"
+        #     ]
+            
         if len(deserialized["episodes"]) == 0:
             return
 

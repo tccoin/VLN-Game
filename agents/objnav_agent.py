@@ -44,7 +44,7 @@ from utils.compute_similarities import (
     color_by_clip_sim,
     cal_clip_sim
 )
-from constants import color_palette, category_to_id
+from constants import color_palette, category_to_id #, category_to_id_replica
 from utils.vis import init_vis_image, draw_line, vis_result_fast
 from utils.explored_map_utils import (
     build_full_scene_pcd,
@@ -133,7 +133,7 @@ class ObjectNav_Agent(Agent):
         
         self.turn_angle = args.turn_angle
         self.init_map_and_navigation_param()
-     
+        
         
         # ------------------------------------------------------------------
 
@@ -196,7 +196,6 @@ class ObjectNav_Agent(Agent):
         self.init_agent_position = None
         self.Open3D_traj = []
         self.objects = MapObjectList(device=self.device)
-        self.open3d_reset = True
         self.nearest_point = None
         self.current_grid_pose = None
         
@@ -235,6 +234,7 @@ class ObjectNav_Agent(Agent):
             self.init_sim_rotation = quaternion.as_rotation_matrix(agent_state.sensor_states["depth"].rotation)
 
             cate_object = category_to_id[observations['objectgoal'][0]]
+            # cate_object = category_to_id_replica[observations['objectgoal'][0]]
             if cate_object == 'sofa':
                 cate_object = 'couch'
             if cate_object == 'tv_monitor':
@@ -410,6 +410,7 @@ class ObjectNav_Agent(Agent):
         clip_time = time.time()
         candidate_objects = []
         clip_candidate_objects = []
+        candidate_id = []
         upstair_candidate_objects = []
         downstair_candidate_objects = []
         similarity_threshold = 0.27
@@ -450,6 +451,9 @@ class ObjectNav_Agent(Agent):
             clip_candidate_objects = [self.objects[i] for i in range(len(self.objects)) 
                                 if (similarities[i] > similarity_threshold) and self.objects[i]['num_detections'] > 1 and \
                                     self.objects[i]['class_name'][np.argmax(self.objects[i]['conf'])] in self.text_queries]
+            candidate_id = [i for i in range(len(self.objects)) 
+                                if (similarities[i] > similarity_threshold) and self.objects[i]['num_detections'] > 1 and \
+                                    self.objects[i]['class_name'][np.argmax(self.objects[i]['conf'])] in self.text_queries] 
             
             for i in range(len(self.objects)):
                 if stairs_similarities[i] > 0.24 and self.objects[i]['class_name'][np.argmax(self.objects[i]['conf'])] == "stairs":
@@ -679,7 +683,7 @@ class ObjectNav_Agent(Agent):
         vis_image = None
         if self.args.print_images or self.args.visualize:
             self.annotated_image  = vis_result_fast(image, detections, self.classes)
-            vis_image = self._visualize(self.obstacle_map, self.explored_map, target_edge_map, self.goal_map)
+            vis_image = self._visualize(self.obstacle_map, self.explored_map, target_edge_map, self.goal_map, self.text_queries)
             
 
         dd_map_time = time.time()
@@ -700,22 +704,22 @@ class ObjectNav_Agent(Agent):
                                 np.asarray(self.point_sum.points), 
                                 np.asarray(self.point_sum.colors), 
                                 self.Open3D_traj,
-                                self.open3d_reset,
+                                self.episode_n,
                                 plan_path,
                                 transform_rgb_bgr(vis_image),
                                 Open3d_goal_pose,
-                                time_step_info]
+                                time_step_info, 
+                                candidate_id]
                                 )    
-        self.open3d_reset = False
-        
+
         self.last_action = action
         
 
         # transfer_time = time.time()
         # time_step_info += 'transfer data time:%.3fs\n'%(transfer_time - dd_map_time)
 
-        # cv2.imshow("episode_n {}".format(self.episode_n), self.annotated_image)
-        # cv2.waitKey(1)
+        cv2.imshow("episode_n {}".format(self.episode_n), self.annotated_image)
+        cv2.waitKey(1)
         # print(time_step_info)
 
         return action
@@ -805,8 +809,9 @@ class ObjectNav_Agent(Agent):
         high_diff = plan_path[1][1] - plan_path[0][1]
         angle_goal = math.degrees(math.asin(high_diff/distance))
 
-        eve_start_x = int(5 * math.sin(math.radians(self.relative_angle)) + self.current_grid_pose[0])
-        eve_start_y = int(5 * math.cos(math.radians(self.relative_angle)) + self.current_grid_pose[1])
+        angle_agent = (360 - self.relative_angle) % 360.0
+        eve_start_x = int(5 * math.sin(math.radians(angle_agent)) + self.current_grid_pose[0])
+        eve_start_y = int(5 * math.cos(math.radians(angle_agent)) + self.current_grid_pose[1])
         eve_start_x = min(max(0, eve_start_x), self.map_size - 1)
         eve_start_y = min(max(0, eve_start_y), self.map_size - 1)
         
@@ -905,8 +910,8 @@ class ObjectNav_Agent(Agent):
         
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT,(3, 3))
         traversible[cv2.dilate(self.visited_vis[gx1:gx2, gy1:gy2][x1:x2, y1:y2], kernel) == 1] = 1
-        traversible[self.collision_map[gx1:gx2, gy1:gy2]
-                    [x1:x2, y1:y2] == 1] = 0
+        traversible[cv2.dilate(self.collision_map[gx1:gx2, gy1:gy2]
+                    [x1:x2, y1:y2], kernel) == 1] = 0
         traversible[int(start[0] - x1) - 1:int(start[0] - x1) + 2,
                     int(start[1] - y1) - 1:int(start[1] - y1) + 2] = 1
 
@@ -1246,7 +1251,7 @@ class ObjectNav_Agent(Agent):
         return [int(gx1), int(gx2), int(gy1), int(gy2)]
     
     
-    def _visualize(self, map_pred, exp_pred, map_edge, goal_map):
+    def _visualize(self, map_pred, exp_pred, map_edge, goal_map, text_queries):
 
         # start_x, start_y, start_o = pose
 
@@ -1325,7 +1330,7 @@ class ObjectNav_Agent(Agent):
         fontScale = 1
         color = (20, 20, 20)  # BGR
         thickness = 2
-        text = "Find {} ".format(self.text_queries)
+        text = "Find {} ".format(text_queries)
         textsize = cv2.getTextSize(text, font, fontScale, thickness)[0]
         textX = (480 - textsize[0]) // 2 + 30
         textY = (50 + textsize[1]) // 2
@@ -1334,7 +1339,7 @@ class ObjectNav_Agent(Agent):
                                 cv2.LINE_AA)
 
         if self.args.print_images:
-            vis_image_rgb = init_vis_image(self.text_queries, self.last_action)
+            vis_image_rgb = init_vis_image(text_queries, self.last_action)
             vis_image_rgb[50:530, 15:655] = self.annotated_image 
             vis_image_rgb[50:530, 670:1150] = vis_image
             

@@ -27,7 +27,7 @@ from habitat.config.default import get_config
 from utils.shortest_path_follower import ShortestPathFollowerCompat
 from utils.task import VLObjectNavEpisode
 from utils.vis_gui import ReconstructionWindow
-from agents.vlnav_agent import VLObjectNav_Agent
+from agents.vlnav_agent_vlm import VLObjectNav_Agent
 from habitat.utils.visualizations import maps
 
 
@@ -41,7 +41,10 @@ def transform_rgb_bgr(image):
 
 # def generate_point_cloud(window):
 def main(args, send_queue, receive_queue):
-    args.exp_name = "vlobjectnav-"+ args.vln_mode
+    args.exp_name = "vlobjectnav-"+ args.vln_mode# + "-mini"
+    
+    if args.gpt_type == 3:
+        args.exp_name += "-mini"
 
     log_dir = "{}/logs/{}/".format(args.dump_location, args.exp_name)
 
@@ -64,7 +67,6 @@ def main(args, send_queue, receive_queue):
     torch.set_grad_enabled(False)
 
     config.defrost()
-    config.DATASET.SPLIT = args.split
     # config.TASK.MEASUREMENTS.append("TOP_DOWN_MAP")
     config.SIMULATOR.HABITAT_SIM_V0.GPU_DEVICE_ID = args.gpu_id
     config.freeze()
@@ -72,10 +74,10 @@ def main(args, send_queue, receive_queue):
     env = Env(config=config)
 
     follower = ShortestPathFollowerCompat(
-        env._sim, 0.3, False
+        env._sim, 0.1, False
     )
 
-    agent = VLObjectNav_Agent(args, follower)
+    agent = VLObjectNav_Agent(args, follower, logging)
 
     agg_metrics: Dict = defaultdict(float)
 
@@ -91,7 +93,6 @@ def main(args, send_queue, receive_queue):
     fail_case['exploration'] = 0
 
     count_episodes = 0
-    # for count_episodes in trange(num_episodes):
     start = time.time()
     
     while count_episodes < num_episodes:
@@ -107,38 +108,25 @@ def main(args, send_queue, receive_queue):
         
         logging.info(obs["instruction"]['text'])
 
-        if args.save_video:
-            video_save_path = '{}/{}/episodes_video/eps_{}_vis.mp4'.format(
-                args.dump_location, args.exp_name, agent.episode_n)
-            frames = []
-
         count_steps = 0
         start_ep = time.time()
         while not env.episode_over:
-
-            # dd_s_time = time.time()
-  
-            if count_episodes < 2:
-                action = 0
-            else:
-                agent_state = env.sim.get_agent_state()
-                action = agent.act(obs, agent_state, send_queue, receive_queue)
+            
+            # if count_episodes < 39:
+            #     action = 0
+            # else:
+            agent_state = env.sim.get_agent_state()
+            action = agent.act(obs, agent_state, send_queue, receive_queue)
 
             if action == None:
                 continue
             obs = env.step(action)
 
-            # cv2.imshow("RGB", transform_rgb_bgr(obs["rgb"]))
+            count_steps += 1
+            
             # top_down_map = draw_top_down_map(env.get_metrics(), obs["rgb"].shape[0])
             # cv2.imshow("top_down_map", top_down_map)
             # cv2.waitKey(1)
-
-
-            count_steps += 1
-            
-            # dd_e_time = time.time()
-            # print(' time:%.3fs\n'%(dd_e_time - dd_s_time)) 
-
 
         if (
             action == 0 and 
@@ -154,6 +142,8 @@ def main(args, send_queue, receive_queue):
                 fail_case['collision'] += 1
             else:
                 fail_case['detection'] += 1
+
+
 
         count_episodes += 1
 
@@ -175,30 +165,30 @@ def main(args, send_queue, receive_queue):
             count_episodes) + '\n'
         
         metrics = env.get_metrics()
-        for m, v in metrics.items():
-            if isinstance(v, dict):
-                for sub_m, sub_v in v.items():
-                    agg_metrics[m + "/" + str(sub_m)] += sub_v
-            else:
-                agg_metrics[m] += v
+        if metrics['distance_to_goal'] != np.inf:
+            for m, v in metrics.items():
+                if isinstance(v, dict):
+                    for sub_m, sub_v in v.items():
+                        agg_metrics[m + "/" + str(sub_m)] += sub_v
+                else:
+                    agg_metrics[m] += v
+                        
 
         log += "Metrics: "
-        log += ", ".join(k + ": {:.3f}".format(v / count_episodes) for k, v in agg_metrics.items()) + " ---({:.0f}/{:.0f})".format(count_episodes, num_episodes)
-
+        log += ", ".join(k + ": {:.3f}".format(v / count_episodes) for k, v in agg_metrics.items()) + " ---({:.0f}/{:.0f})".format(count_episodes, num_episodes) + '\n'
+        
+        log += ", ".join(m + ": {:.3f}".format(v) for m,v in metrics.items())
         print(log)
         logging.info(log)
 
-        if args.save_video:
-            imageio.mimsave(video_save_path, frames, fps=2)
-            print(f"Video saved to {video_save_path}")
-     
+
         
 
     avg_metrics = {k: v / count_episodes for k, v in agg_metrics.items()}
 
     for stat_key in avg_metrics.keys():
         logger.info("{}: {:.3f}".format(stat_key, avg_metrics[stat_key]))
-
+        print("{}: {:.3f}".format(stat_key, avg_metrics[stat_key]))
     return
 
 
@@ -216,7 +206,7 @@ if __name__ == "__main__":
     send_queue = Queue()
     receive_queue = Queue()
 
-    if args.visualize:
+    if args.visualize or 'vlm' in args.vln_mode:
         # Create a thread for the Open3D visualization
         visualization = threading.Thread(target=visualization_thread, args=(send_queue, receive_queue,))
         visualization.start()

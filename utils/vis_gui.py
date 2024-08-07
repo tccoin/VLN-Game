@@ -22,7 +22,7 @@ import time
 import torch
 from multiprocessing import Process, Queue, set_start_method
 import cv2
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 from utils.compute_similarities import color_by_clip_sim
 
@@ -146,9 +146,13 @@ class ReconstructionWindow:
 
         self.is_started = False
         self.is_running = True
+        self.episode_n = 0
+        self.candidate_id = 0
 
         self.idx = 0
         self.traj = []
+        self.full_pcd_poinst = []
+        self.full_pcd_colors = []
 
         # Start running
         self.send_queue = send_queue
@@ -274,10 +278,10 @@ class ReconstructionWindow:
 
         bbox = o3d.geometry.AxisAlignedBoundingBox([-5, -5, -5], [5, 5, 5])
         self.widget3d.setup_camera(90, bbox, [0, 0, 0])
+        self.widget3d.look_at([0, 0, 0], [-3, 4, 0], [0, 1, 0])
+
         # self.widget3d.setup_camera(90, bbox, [camera_matrix[3,0], camera_matrix[3,1], camera_matrix[3,2]])[0, 0, 0]
         # self.widget3d.look_at(camera_matrix[:3,0], camera_matrix[:3,1], camera_matrix[:3,2])
-        self.widget3d.look_at([0, 0, 0], [-3, 3, 0], [0, 1, 0])
-
         points = np.random.rand(100, 3)
         colors = np.zeros((100, 3))
         colors[:, 0] = 1  # 红色
@@ -291,6 +295,50 @@ class ReconstructionWindow:
         # Add a coordinate frame
         self.widget3d.scene.show_axes(True)
 
+    def render_top_view_map(self, 
+                      objects, 
+                      point_sum_points,
+                      point_sum_colors,
+                      candidate_id):
+        
+        self.widget3d.scene.clear_geometry()
+        if self.rgb_pc_box.checked:
+            # self.full_pcd_poinst.append(point_sum_points)
+            # self.full_pcd_colors.append(point_sum_colors)
+            
+            # point_sum_points = np.vstack(self.full_pcd_poinst)
+            # point_sum_colors = np.vstack(self.full_pcd_colors)
+            
+            full_pcd = o3d.t.geometry.PointCloud(
+            o3c.Tensor(point_sum_points.astype(np.float32)))
+            full_pcd.point.colors = o3c.Tensor(point_sum_colors.astype(np.float32))
+            material = rendering.MaterialRecord()
+            material.shader = "defaultUnlit"
+            self.widget3d.scene.add_geometry('full_pcd', full_pcd, material)  # Add material argument
+
+
+        if len(objects) > 0:
+   
+            bbox = o3d.geometry.AxisAlignedBoundingBox(objects[candidate_id]['bbox_np'][0].astype(np.float32), objects[candidate_id]['bbox_np'][1].astype(np.float32)) 
+            mat = rendering.MaterialRecord()
+            mat.shader = "unlitLine"
+            mat.line_width = 5.0
+
+            bbox.color = [1, 0, 0]
+            self.widget3d.scene.add_geometry(f"bbox_{candidate_id}", bbox, mat)
+            # 保存图片
+            target_position = bbox.get_center()
+            self.widget3d.look_at(target_position+[0, 0, 0], target_position+[-0.5, 4, 0], [0, 1, 0])
+            self.candidate_id = candidate_id
+            # print('send_image')
+            while True:
+                try:
+                    self.widget3d.scene.scene.render_to_image(self.on_image_rendered)
+                    break  # 成功后跳出循环
+                except Exception as e:
+                    print(f"Error rendering image, retrying: {e}")
+            
+        
     def update_render(self, 
                       input_depth, 
                       input_color, 
@@ -304,6 +352,11 @@ class ReconstructionWindow:
                       vis_image,
                       Open3d_goal_pose,
                       candidate_id):
+        
+        # update view
+        camera_position = traj[-1][:3, 3]
+        self.widget3d.look_at(camera_position+[0, 0, 0], camera_position+[-0.5, 4, 0], [0, 1, 0])
+        
         self.input_depth_image.update_image(
             input_depth.colorize_depth(
                 1000.0, self.args.min_depth,
@@ -338,9 +391,21 @@ class ReconstructionWindow:
                 material.line_width = 5.0
                 self.widget3d.scene.add_geometry('path_points', path_lineset, material)
 
-        # if self.is_scene_updated:
-        # print(objects)
-        
+        self.widget3d.scene.remove_geometry("full_pcd")
+        if self.rgb_pc_box.checked:
+            # self.full_pcd_poinst.append(point_sum_points)
+            # self.full_pcd_colors.append(point_sum_colors)
+            
+            # point_sum_points = np.vstack(self.full_pcd_poinst)
+            # point_sum_colors = np.vstack(self.full_pcd_colors)
+            
+            full_pcd = o3d.t.geometry.PointCloud(
+            o3c.Tensor(point_sum_points.astype(np.float32)))
+            full_pcd.point.colors = o3c.Tensor(point_sum_colors.astype(np.float32))
+            material = rendering.MaterialRecord()
+            material.shader = "defaultUnlit"
+            self.widget3d.scene.add_geometry('full_pcd', full_pcd, material)  # Add material argument
+
         if len(objects) > 0:
             pcd_sum = []
             pcd_color_sum = []
@@ -362,64 +427,46 @@ class ReconstructionWindow:
             self.widget3d.scene.add_geometry('points', pcd, material)  # Add material argument
 
 
-            bboxs = [o3d.geometry.AxisAlignedBoundingBox(min_bound, max_bound) for min_bound, max_bound in bbox_sum]
-            mat = rendering.MaterialRecord()
-            mat.shader = "unlitLine"
-            mat.line_width = 5.0
-            for i, bbox in enumerate(bboxs):
-                self.widget3d.scene.remove_geometry(f"bbox_{i}")
-                if i in candidate_id:
-                    bbox.color = [1, 0, 0]
-                    self.widget3d.scene.add_geometry(f"bbox_{i}", bbox, mat)
+            # bboxs = [o3d.geometry.AxisAlignedBoundingBox(min_bound, max_bound) for min_bound, max_bound in bbox_sum]
+            # mat = rendering.MaterialRecord()
+            # mat.shader = "unlitLine"
+            # mat.line_width = 5.0
 
-
-
-        self.widget3d.scene.remove_geometry("full_pcd")
-        if self.rgb_pc_box.checked:
-            full_pcd = o3d.t.geometry.PointCloud(
-            o3c.Tensor(point_sum_points.astype(np.float32)))
-            full_pcd.point.colors = o3c.Tensor(point_sum_colors.astype(np.float32))
-            material = rendering.MaterialRecord()
-            material.shader = "defaultUnlit"
-            self.widget3d.scene.add_geometry('full_pcd', full_pcd, material)  # Add material argument
-
-
-        self.widget3d.scene.remove_geometry("goal_pose")
-        goal_pcd = o3d.geometry.PointCloud()
-        goal_pcd.points = o3d.utility.Vector3dVector(np.array([Open3d_goal_pose]))
-        # Set a large size for the point
-        goal_material = rendering.MaterialRecord()
-        goal_material.shader = "defaultUnlit"
-        goal_material.point_size = 20.0  # Adjust this value to make the point larger
-        # Set the color of the point to distinguish it (e.g., red)
-        goal_colors = np.array([[1.0, 0.0, 0.0]])  # Red color
-        goal_pcd.colors = o3d.utility.Vector3dVector(goal_colors)
-        # Add the goal pose point cloud to the scene
-        self.widget3d.scene.add_geometry("goal_pose", goal_pcd, goal_material)
-
-
-
-        # 保存图片
-        # self.widget3d.scene.scene.render_to_image(self.on_image_rendered)
-
-        # # 保存视频
-        # video_filename = "scene_widget_video.mp4"
-        # recorder = rendering.VideoRecorder(video_filename, 30, 1024, 768)
             
-     
-    # def on_image_rendered(self, image):
-    #     # Convert the open3d.cuda.pybind.geometry.Image object to a numpy array
-    #     np_image = np.asarray(image)
-    #     # Convert the numpy array to a PIL Image object
-    #     pil_image = Image.fromarray(np_image)
-    #     # Save the image using PIL
-    #     dump_dir = "{}/{}/episodes".format(self.args.dump_location,
-    #                                 self.args.exp_name)
-    #     if not os.path.exists(dump_dir):
-    #         os.makedirs(dump_dir)
-    #     image_filename = '{}/Vis-{}.png'.format(dump_dir, self.idx)
-    #     pil_image.save(image_filename)
-    #     print(f"Saved screenshot to {image_filename}")
+            # for i, bbox in enumerate(bboxs):
+            #     # self.widget3d.scene.remove_geometry(f"bbox_{i}")
+            #     if i in candidate_id:
+                        
+            #         bbox.color = [1, 0, 0]
+            #         self.widget3d.scene.add_geometry(f"bbox_{i}", bbox, mat)
+            #         # 保存图片
+            #         target_position = bbox.get_center()
+            #         self.widget3d.look_at(target_position+[0, 0, 0], target_position+[-0.5, 4, 0], [0, 1, 0])
+            #         self.candidate_id = i
+            #         print(self.candidate_id)
+            #         self.widget3d.scene.scene.render_to_image(self.on_image_rendered)
+            #         time.sleep(0.1)
+            #         self.widget3d.scene.remove_geometry(f"bbox_{i}")
+
+
+
+
+
+        # self.widget3d.scene.remove_geometry("goal_pose")
+        # goal_pcd = o3d.geometry.PointCloud()
+        # goal_pcd.points = o3d.utility.Vector3dVector(np.array([Open3d_goal_pose]))
+        # # Set a large size for the point
+        # goal_material = rendering.MaterialRecord()
+        # goal_material.shader = "defaultUnlit"
+        # goal_material.point_size = 20.0  # Adjust this value to make the point larger
+        # # Set the color of the point to distinguish it (e.g., red)
+        # goal_colors = np.array([[1.0, 0.0, 0.0]])  # Red color
+        # goal_pcd.colors = o3d.utility.Vector3dVector(goal_colors)
+        # # Add the goal pose point cloud to the scene
+        # self.widget3d.scene.add_geometry("goal_pose", goal_pcd, goal_material)
+
+
+
 
 
 
@@ -427,28 +474,68 @@ class ReconstructionWindow:
 
     def on_image_rendered(self, image):
         
-        dump_dir = "{}/{}/episodes".format(self.args.dump_location,
-                                    self.args.exp_name)
+        dump_dir = "{}/{}/episodes/{}".format(self.args.dump_location,
+                                    self.args.exp_name, self.episode_n)
         if not os.path.exists(dump_dir):
             os.makedirs(dump_dir)
-        image_filename = '{}/Vis-{}.png'.format(dump_dir, self.idx)
+        image_filename = '{}/Vis-{}.jpeg'.format(dump_dir, self.candidate_id)
+        # image_filename = '{}/Vis-{}-{}.png'.format(dump_dir, self.idx, self.candidate_id)
         s_time = time.time()
 
         # Convert the open3d.cuda.pybind.geometry.Image object to a numpy array
         np_image = np.asarray(image)
-        resized_image = cv2.resize(np_image, (480, 640))
-        # Convert the numpy array to a PIL Image object
-        pil_image = Image.fromarray(resized_image)
-        # Save the image using PIL
+        resized_image1 = cv2.resize(np_image, (480, 480))
         
+        candidate_image = np.asarray(self.candidate_image)
+        resized_image2 = cv2.resize(candidate_image, (480, 480))
+        
+        # Combine images horizontally
+        combined_image = np.hstack((resized_image1, resized_image2))
+        
+        # Convert the numpy array to a PIL Image object
+        pil_image = Image.fromarray(combined_image)
+        
+        # add the number on the image
+        # Initialize drawing context
+        draw = ImageDraw.Draw(pil_image)
+        # Define the text to be added and its position
+        font_size = 40
+
+        try:
+            # Attempt to use a truetype font if available
+            font = ImageFont.truetype("arial.ttf", font_size)
+        except IOError:
+            # If the truetype font is not available, use the default PIL font
+            font = ImageFont.load_default(font_size)
+
+        # Calculate text size to center it
+        # bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = 45
+        text_height = 45
+        padding = 3
+        position = (3, 3)  # Adjust position as needed
+
+        # Define the rectangle coordinates
+        rect_x0 = position[0] - padding
+        rect_y0 = position[1] - padding
+        rect_x1 = position[0] + text_width + padding
+        rect_y1 = position[1] + text_height + padding
+
+        # Draw the white rectangle
+        draw.rectangle([rect_x0, rect_y0, rect_x1, rect_y1], fill="white")
+
+        # Add text to image
+        draw.text(position, str(self.candidate_id), fill="red", font=font)
+
+        # Save the image using PIL
         pil_image.save(image_filename)
         # print(f"Saved screenshot to {image_filename}")
         c_time = time.time()
 
         ss_time = c_time - s_time
-        print(self.idx)
-        print('render: %.3f秒'%ss_time) 
-
+        # print(self.candidate_id)
+        # print('render: %.3f秒'%ss_time) 
+        self.candidate_id = -1
 
     # Major loop
     def update_main(self):
@@ -477,75 +564,94 @@ class ReconstructionWindow:
         start = time.time()
         while not self.is_done:
             if not self.receive_queue.empty():
-                image_rgb, image_depth, annotated_image, objects, point_sum_points, point_sum_colors, traj, reset, plan_path, vis_image, Open3d_goal_pose, time_step_info, candidate_id = self.receive_queue.get()
+                image_rgb, image_depth, annotated_image, objects, point_sum_points, point_sum_colors, traj, episode_n, plan_path, vis_image, Open3d_goal_pose, time_step_info, candidate_id = self.receive_queue.get()
                 
-                if reset:
+                if episode_n > self.episode_n:
                     self.idx = 0
                     self.widget3d.scene.clear_geometry()
+                    self.episode_n = episode_n
+                    self.full_pcd_poinst = []
+                    self.full_pcd_colors = []
+                           
+                if len(candidate_id) == 0:
+                    
+                    self.saved_objects = objects
+                    # self.saved_full_points = point_sum_points
+                    # self.saved_full_colors = point_sum_colors
 
-                self.saved_objects = objects
-                self.saved_full_points = point_sum_points
-                self.saved_full_colors = point_sum_colors
+                    image_depth = (image_depth * 1000).astype(np.uint16)
+                    annotated_image = cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB) 
 
-                image_depth = (image_depth * 1000).astype(np.uint16)
-                annotated_image = cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB) 
+                    depth = o3d.t.geometry.Image(image_depth)
+                    color = o3d.t.geometry.Image(image_rgb)
+                    semantic = o3d.t.geometry.Image(annotated_image)
+                    vis_image = o3d.t.geometry.Image(vis_image)
 
-                depth = o3d.t.geometry.Image(image_depth)
-                color = o3d.t.geometry.Image(image_rgb)
-                semantic = o3d.t.geometry.Image(annotated_image)
-                vis_image = o3d.t.geometry.Image(vis_image)
+                    T_frame_to_model = o3c.Tensor(traj[-1])
+                    frustum = o3d.geometry.LineSet.create_camera_visualization(
+                        color.columns, color.rows, intrinsic.numpy(),
+                        np.linalg.inv(T_frame_to_model.cpu().numpy()), 0.2)
+                    frustum.paint_uniform_color([0.961, 0.475, 0.000])
 
-                T_frame_to_model = o3c.Tensor(traj[-1])
-                frustum = o3d.geometry.LineSet.create_camera_visualization(
-                    color.columns, color.rows, intrinsic.numpy(),
-                    np.linalg.inv(T_frame_to_model.cpu().numpy()), 0.2)
-                frustum.paint_uniform_color([0.961, 0.475, 0.000])
-
-                torch.cuda.synchronize()
+                    torch.cuda.synchronize()
 
 
-                # self.traj.append(camera_matrix)
+                    # self.traj.append(camera_matrix)
 
-     
-                # Output FPS
-                if (self.idx % fps_interval_len == 0):
-                    end = time.time()
-                    elapsed = end - start
-                    start = time.time()
-                    self.output_fps.text = 'FPS: {:.3f}'.format(fps_interval_len /
-                                                                elapsed)
+        
+                    # Output FPS
+                    if (self.idx % fps_interval_len == 0):
+                        end = time.time()
+                        elapsed = end - start
+                        start = time.time()
+                        self.output_fps.text = 'FPS: {:.3f}'.format(fps_interval_len /
+                                                                    elapsed)
 
-                # Output info
-                info = 'Frame {}/{}\n\n'.format(self.idx, 500)
-                info += 'Transformation:\n{}\n\n'.format(
-                    np.array2string(T_frame_to_model.numpy(),
-                                    precision=3,
-                                    max_line_width=40,
-                                    suppress_small=True,
-                                    formatter={'float_kind': lambda x: f"{x:.2f}"}))
-                info += time_step_info
+                    # Output info
+                    info = 'Frame {}/{}\n\n'.format(self.idx, 500)
+                    info += 'Transformation:\n{}\n\n'.format(
+                        np.array2string(T_frame_to_model.numpy(),
+                                        precision=3,
+                                        max_line_width=40,
+                                        suppress_small=True,
+                                        formatter={'float_kind': lambda x: f"{x:.2f}"}))
+                    info += time_step_info
 
-                self.output_info.text = info
+                    self.output_info.text = info
 
-                gui.Application.instance.post_to_main_thread(
-                    self.window, lambda: self.update_render(
-                        depth,
-                        color,
-                        semantic, 
-                        objects, 
-                        frustum,
-                        point_sum_points,
-                        point_sum_colors,
-                        traj,
-                        plan_path,
-                        vis_image,
-                        Open3d_goal_pose,
-                        candidate_id)
-                        )
+                    gui.Application.instance.post_to_main_thread(
+                        self.window, lambda: self.update_render(
+                            depth,
+                            color,
+                            semantic, 
+                            objects, 
+                            frustum,
+                            point_sum_points,
+                            point_sum_colors,
+                            traj,
+                            plan_path,
+                            vis_image,
+                            Open3d_goal_pose,
+                            candidate_id)
+                            )
+                    self.idx += 1
+                    
+                else:
+                    
+                    for index, i in enumerate(candidate_id):
+                        self.candidate_id = 0
+                        self.candidate_image = image_rgb[index]
+                        gui.Application.instance.post_to_main_thread(
+                            self.window, lambda i = i: self.render_top_view_map(
+                                objects, 
+                                point_sum_points,
+                                point_sum_colors,
+                                i)
+                            )
+                        while (self.candidate_id != -1):
+                            time.sleep(0.01)
+                        
 
-                self.idx += 1
-                # self.is_done = self.is_done | (self.idx >= 100)
-                # print("idx: ", self.idx)
 
             time.sleep(0.1)
 

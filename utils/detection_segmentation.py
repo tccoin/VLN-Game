@@ -6,6 +6,7 @@ import time
 import torchvision
 import supervision as sv
 
+from PIL import Image
 
 from utils.model_utils import(
     get_sam_predictor,
@@ -114,11 +115,11 @@ class Object_Detection_and_Segmentation():
                 self.classes = [cls for cls in self.classes if cls not in remove_classes]
             self.yolo_model_w_classes.set_classes(classes)
         
-    def detect(self, image, image_rgb, classes):
+    def detect(self, image, image_rgb, classes=None):
         
         get_results = False
         if self.args.detector == "dino":
-
+            # image_pil = Image.fromarray(image_rgb)
             # raw_image = image_pil.resize((384, 384))
             # raw_image = self.tagging_transform(raw_image).unsqueeze(0).to(self.device)
             
@@ -126,12 +127,12 @@ class Object_Detection_and_Segmentation():
             # # Currently ", " is better for detecting single tags
             # # while ". " is a little worse in some case
             # text_prompt=res[0].replace(' |', ',')
-            # print(text_prompt)
+            # # print(text_prompt)
             
             # # Add "other item" to capture objects not in the tag2text captions. 
             # # Remove "xxx room", otherwise it will simply include the entire image
             # # Also hide "wall" and "floor" for now...
-            # add_classes = ["other item", "staircase", self.text_queries]
+            # add_classes = ["other item"]
             # remove_classes = [
             #     "room", "kitchen", "office", "house", "home", "building", "corner",
             #     "shadow", "carpet", "photo", "shade", "stall", "space", "aquarium", 
@@ -158,7 +159,7 @@ class Object_Detection_and_Segmentation():
             #     # Use all the classes that have been seen so far
             #     self.classes = list(self.global_classes)
 
-
+            # classes = self.classes
             # ------------------------------------------------------------------
             ##### Detection and segmentation
             # ------------------------------------------------------------------
