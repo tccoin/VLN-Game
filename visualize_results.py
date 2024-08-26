@@ -9,7 +9,7 @@
 
 # P.S. This example is used in documentation, so, please ensure the changes are
 # synchronized.
-
+import glob
 import open3d as o3d
 import open3d.core as o3c
 import open3d.visualization.gui as gui
@@ -35,7 +35,7 @@ def set_enabled(widget, enable):
 
 class ReconstructionWindow:
 
-    def __init__(self, args, font_id):
+    def __init__(self, args, font_id, send_queue= Queue(), receive_queue= Queue()):
         self.args = args
 
         self.device = "cuda:0"
@@ -151,6 +151,8 @@ class ReconstructionWindow:
         self.idx = 0
         self.traj = []
 
+        self.send_queue = send_queue
+        self.receive_queue = receive_queue
         threading.Thread(name='UpdateMain', target=self.update_main).start()
 
     def _on_submit(self):
@@ -188,22 +190,6 @@ class ReconstructionWindow:
 
         return True
     
-    def plane_segmentation(self, pcd, distance_threshold=0.05, ransac_n=3, num_iterations=50):
-        # 使用RANSAC拟合平面
-        ground_sum = []
-        while True:
-            plane_model, inliers = pcd.segment_plane(distance_threshold, ransac_n, num_iterations)
-            if len(inliers) < 100:
-                break
-            inlier_cloud = pcd.select_by_index(inliers)
-            outlier_cloud = pcd.select_by_index(inliers, invert=True)
-            pcd = pcd.select_by_index(inliers, invert=True)
-            # pcd.paint_uniform_color([0, 1, 0])  # 绿色表示地面点
-            ground_sum.append(inlier_cloud)
-            
-        
-        # ground_cloud = o3d.t.geometry.PointCloud(o3c.Tensor(np.vstack(ground_sum)))
-        return ground_sum
 
 
     def init_render(self):
@@ -232,7 +218,9 @@ class ReconstructionWindow:
     def update_render(self, 
                       objects, 
                       point_sum_points,
-                      point_sum_colors):
+                      point_sum_colors,
+                    Open3d_goal_pose = None,
+                    candidate_id = None):
         
         self.window.set_needs_layout()
         bbox = o3d.geometry.AxisAlignedBoundingBox([-5, -5, -5], [5, 5, 5])
@@ -247,14 +235,6 @@ class ReconstructionWindow:
             pcd_color_sum = []
             bbox_sum = []
             bbox_color_sum = []
-            
-            # clip_objects = MapObjectList(device=self.device)
-            # clip_objects.load_serializable(objects)
-            # text_queries = "stair"
-            # clip_objects, similarities = color_by_clip_sim(text_queries, 
-            #                                             clip_objects, 
-            #                                             self.clip_model, 
-            #                                             self.clip_tokenizer)
             
             for obj in objects:
                 pcd_sum.append(obj['pcd_np'].astype(np.float32))
@@ -275,10 +255,14 @@ class ReconstructionWindow:
             # bboxs = [o3d.geometry.AxisAlignedBoundingBox(min_bound, max_bound) for min_bound, max_bound in bbox_sum]
             # mat = rendering.MaterialRecord()
             # mat.shader = "unlitLine"
+            # mat.line_width = 5.0
             # for i, bbox in enumerate(bboxs):
-            #     bbox.color = [1, 0, 0]
             #     self.widget3d.scene.remove_geometry(f"bbox_{i}")
-            #     self.widget3d.scene.add_geometry(f"bbox_{i}", bbox, mat)
+            #     if i in candidate_id:
+            #         bbox.color = [1, 0, 0]
+            #         self.widget3d.scene.add_geometry(f"bbox_{i}", bbox, mat)
+
+
 
 
         self.widget3d.scene.remove_geometry("full_pcd")
@@ -291,44 +275,20 @@ class ReconstructionWindow:
             material.shader = "defaultUnlit"
             self.widget3d.scene.add_geometry('full_pcd', full_pcd, material)  # Add material argument
             
-            # pcd = o3d.geometry.PointCloud()
-            # pcd.points = o3d.utility.Vector3dVector(point_sum_points.astype(np.float32))
-            # hull, _ = pcd.compute_convex_hull()
-            # hull_lines = o3d.geometry.LineSet.create_from_triangle_mesh(hull)
-            # hull_lines.paint_uniform_color([1, 0, 0]) 
-            # mat = rendering.MaterialRecord()
-            # mat.shader = "unlitLine"
-            # self.widget3d.scene.add_geometry(f"hull", hull_lines, mat)
+
             
-        # self.widget3d.scene.remove_geometry("ground_cloud")
-        # # self.widget3d.scene.remove_geometry("non_ground_cloud")
-        # if self.rgb_pc_box.checked:
-        #     full_pcd = o3d.t.geometry.PointCloud(
-        #     o3c.Tensor(point_sum_points.astype(np.float32)))
-        #     full_pcd.point.colors = o3c.Tensor(point_sum_colors.astype(np.float32))
-        #     # full_pcd.voxel_down_sample(10)
-        #     ground_time = time.time()
-
-        #     ground_cloud = self.plane_segmentation(full_pcd)
-                
-        #     ground_f_time = time.time()
-        #     print('ground_time: %.3f秒'%(ground_f_time - ground_time)) 
-        #     # non_ground_cloud.paint_uniform_color([1, 0, 0])
-
-        #     material = rendering.MaterialRecord()
-        #     material.shader = "defaultUnlit"
-        #     self.widget3d.scene.add_geometry('ground_cloud', ground_cloud, material)  # Add material argument
-        #     # self.widget3d.scene.add_geometry('non_ground_cloud', non_ground_cloud, material)  # Add material argument
-
-
-        # 保存图片
-        # self.widget3d.scene.scene.render_to_image(self.on_image_rendered)
-
-        # # 保存视频
-        # video_filename = "scene_widget_video.mp4"
-        # recorder = rendering.VideoRecorder(video_filename, 30, 1024, 768)
-            
-     
+        # self.widget3d.scene.remove_geometry("goal_pose")
+        # goal_pcd = o3d.geometry.PointCloud()
+        # goal_pcd.points = o3d.utility.Vector3dVector(np.array([Open3d_goal_pose]))
+        # # Set a large size for the point
+        # goal_material = rendering.MaterialRecord()
+        # goal_material.shader = "defaultUnlit"
+        # goal_material.point_size = 20.0  # Adjust this value to make the point larger
+        # # Set the color of the point to distinguish it (e.g., red)
+        # goal_colors = np.array([[1.0, 0.0, 0.0]])  # Red color
+        # goal_pcd.colors = o3d.utility.Vector3dVector(goal_colors)
+        # # Add the goal pose point cloud to the scene
+        # self.widget3d.scene.add_geometry("goal_pose", goal_pcd, goal_material)
 
 
 
@@ -337,20 +297,35 @@ class ReconstructionWindow:
     # Major loop
     def update_main(self):
         
-        data = np.load(self.args.path_npz + 'arrays.npz', allow_pickle=True)
+        scenes = glob.glob("./saved_pcd1/*/arrays.npz")
+        data = np.load(scenes[1], allow_pickle=True)
+        # data = np.load(self.args.path_npz + 'arrays.npz', allow_pickle=True)
 
         objects = data['objects']
         point_sum_points = data['full_points']
         point_sum_colors = data['full_colors']
-
+ 
         gui.Application.instance.post_to_main_thread(
             self.window, lambda: self.update_render(
                 objects, 
                 point_sum_points,
                 point_sum_colors)
-                )
+                )       
+        
+        # while not self.is_done:
+        #     if not self.receive_queue.empty():
+        #         objects, point_sum_points, point_sum_colors, Open3d_goal_pose, candidate_id = self.receive_queue.get()
 
-  
+        #         # if reset:
+        #         #     self.widget3d.scene.clear_geometry()
+        #         gui.Application.instance.post_to_main_thread(
+        #             self.window, lambda: self.update_render(
+        #                 objects, 
+        #                 point_sum_points,
+        #                 point_sum_colors,
+        #                 Open3d_goal_pose,
+        #                 candidate_id)
+        #                 )
 
 
 if __name__ == '__main__':

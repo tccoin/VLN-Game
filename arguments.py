@@ -84,9 +84,9 @@ def get_args():
 
 
     # LLM setting
-    parser.add_argument('--vln_mode', type=str, default="vlm_generator",
+    parser.add_argument('--vln_mode', type=str, default="vlm_game",
                         choices=['clip', 'llm', 'vlm', 'vlm_generator', "vlm_game"])
-    parser.add_argument('--gpt_type', type=int, default=3,
+    parser.add_argument('--gpt_type', type=int, default=2,
                         help="""0: text-davinci-003
                                 1: gpt-3.5-turbo
                                 2: gpt-4o

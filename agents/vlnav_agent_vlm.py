@@ -14,7 +14,7 @@ import yaml
 import quaternion
 from yacs.config import CfgNode as CN
 import logging
-
+from io import BytesIO
 import numpy as np
 import cv2
 from utils.mapping import (
@@ -45,7 +45,7 @@ from utils.explored_map_utils import (
 
 import ast
 import base64
-
+from PIL import Image, ImageDraw, ImageFont
 from utils.equ_ranking import Equilibrium_Ranking
 # from agents.system_prompt import Instruction_system_prompt
 from agents.objnav_agent import ObjectNav_Agent
@@ -140,6 +140,10 @@ class VLObjectNav_Agent(ObjectNav_Agent):
             self.image_list.append(image_rgb)
             
         get_results, detections = self.obj_det_seg.detect(image, image_rgb, self.classes) 
+        
+        # if 'vlm' in self.args.vln_mode :
+        #     self.annotated_image  = vis_result_fast(image, detections, self.classes)
+        #     self.image_list.append(transform_rgb_bgr(self.annotated_image))
         
         clip_s_time = time.time()
         image_crops, image_feats, current_image_feats = compute_clip_features(
@@ -391,12 +395,12 @@ class VLObjectNav_Agent(ObjectNav_Agent):
                 elif self.args.vln_mode == "vlm_game":
                     candidate_index = self.equ_ranking.equilibrium_search(base64_image_list, candidate_id)
 
-                if candidate_index == len(candidate_target) : # -1: not sure
+                if candidate_index == -1 : # -1: not sure
                     print("reject all candidates")
                 else:
-                    self.candidate_objects = [candidate_target[candidate_index]]
-                    self.logger.info("Found candidate_objects!"+str(candidate_id[candidate_index]))
-                    print("Found candidate_objects!", candidate_id[candidate_index])  
+                    self.candidate_objects = [self.objects[candidate_index]]
+                    self.logger.info("Found candidate_objects!"+str(candidate_index))
+                    print("Found candidate_objects!", candidate_index)  
                     
                 self.candidate_num = len(total_candidate_objects)
             
@@ -591,3 +595,52 @@ class VLObjectNav_Agent(ObjectNav_Agent):
 
 
 
+    def draw_number(self, image, candidate_id):
+        # Convert the numpy array to a PIL Image object
+        pil_image = Image.fromarray(image)
+        
+
+        # add the number on the image
+        # Initialize drawing context
+        draw = ImageDraw.Draw(pil_image)
+        # Define the text to be added and its position
+        font_size = 40
+
+        try:
+            # Attempt to use a truetype font if available
+            font = ImageFont.truetype("arial.ttf", font_size)
+        except IOError:
+            # If the truetype font is not available, use the default PIL font
+            font = ImageFont.load_default(font_size)
+
+        # Calculate text size to center it
+        # bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = 45
+        text_height = 45
+        padding = 3
+        position = (3, 3)  # Adjust position as needed
+
+        # Define the rectangle coordinates
+        rect_x0 = position[0] - padding
+        rect_y0 = position[1] - padding
+        rect_x1 = position[0] + text_width + padding
+        rect_y1 = position[1] + text_height + padding
+
+        # Draw the white rectangle
+        draw.rectangle([rect_x0, rect_y0, rect_x1, rect_y1], fill="white")
+
+        # Add text to image
+        draw.text(position, str(candidate_id), fill="red", font=font)
+
+        # Save the image using PIL
+        dump_dir = "{}/{}/episodes/{}".format(self.args.dump_location,
+                                    self.args.exp_name, self.episode_n)
+        if not os.path.exists(dump_dir):
+            os.makedirs(dump_dir)
+        image_filename = '{}/Vis-{}.jpeg'.format(dump_dir, candidate_id)
+        pil_image.save(image_filename)
+        
+
+        buffered = BytesIO()
+        pil_image.save(buffered, format="JPEG")
+        return buffered

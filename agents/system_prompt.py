@@ -618,10 +618,45 @@ Output Example:
 }
 """
 
-generator_prompt = """You are a generator agent tasked with evaluating images and maps based on a user's description. Each description specifies objects that must be visible in the images or maps. Your job is to analyze all first-view images and top-view maps for the match of the candidate objects in the center of the map, and their attributes and spatial relationships. If all items match the user description, select the image id. If not, return "-1" for "object_id".
+# generator_prompt = """You are a generator agent tasked with evaluating images and maps based on a object's description. Each description specifies objects that must be visible in the images or maps. Your job is to analyze all first-view images and top-view maps for the match of the candidate objects in the center of the map, and their attributes and spatial relationships. If all items match the object description, select the image id. If not, return "-1" for "object_id".
 
-- Input includes: user's description, a top-view map from point clouds, and a first-view image facing the target. The center of the map with a red Bbox highlights the candidate object. The top-left red number on each image is the image id.
-- Your output should be a JSON object that includes "object_id" with the image id if the image match user's description, or "-1" if not.
+# - Input includes: object's description, top-view maps from point clouds, and first-view images facing the candidate. The center of the map with a red Bbox highlights the candidate object. The top-left red number on each image is the image id.
+# - Your output should be a JSON object that includes "object_id" with the image id if the image match object's description, or "-1" if not.
+
+# Output Example:
+# {
+#     "object_id": "4",
+# }
+# """
+
+# discriminator_prompt = """You are a discriminator agent tasked with evaluating images and maps based on a object's description. Each description specifies objects that must be visible in the images or maps. Your job is to analyze all first-view images and top-view maps for the match of the candidate objects, and their attribute and spatial relationships. If all items match the object description, select "correct". If not, return "incorrect" for "correctness".
+
+# - Input includes: object's description, top-view maps from point clouds, and first-view images facing the candidate. The center of the map with a red Bbox highlights the candidate object. 
+# - Your output should be a JSON object that includes "correct" if the image match object's description, or "incorrect" if not. 
+
+# Output Example:
+# {
+#     "correctness": "correct",
+#     "reason": "reasoning",
+# }
+# """
+
+# discriminator_prompt = """You are an agent tasked with evaluating images and maps based on a object's description. Each description specifies objects that must be visible in the images or maps. Your job is to analyze the first-view image and top-view map for the match of the candidate objects in the center of the map, and their attributes and spatial relationships. If all items match the object description, output 'correct'. If not, return 'incorrect'.
+
+# - Input includes: object's description, top-view map from point clouds, and first-view image facing the target. The center of the map with a red Bbox highlights the candidate object. The top-left red number on each image is the image id.
+# - Your output should be a JSON object that includes "correct" if you identify these elements described in the object's description, or "incorrect" if not. 
+
+# Output Example:
+# {
+#     "correctness": "correct",
+#     "reason": "which image id is more matching, and which one is not",
+# }
+# """
+
+generator_prompt = """You are a generator agent tasked with evaluating images and maps based on a object's description. Each description specifies objects that must be visible in the images or maps. Your job is to analyze all first-view images and top-view maps for the match of the candidate objects, and their attributes and spatial relationships. 
+
+- Input includes: object's description, top-view maps from point clouds, and first-view images facing the candidate. The center of the map with a red Bbox highlights the candidate object. The top-left red number on each image is the image id.
+- Your output should be a JSON object that includes "object_id" with the image id if the image match object's description, or "-1" if not.
 
 Output Example:
 {
@@ -629,13 +664,24 @@ Output Example:
 }
 """
 
-discriminator_prompt = """You are a discriminator agent tasked with evaluating images and maps based on a user's description. Each description specifies objects that must be visible in the images or maps. Your job is to analyze the first-view image and top-view map for the match of the candidate object in the center of the map, and the attribute and spatial relationships. If all items match the user description, output 'correct'. If not, return 'incorrect'.
+# discriminator_prompt = """You are a discriminator agent tasked with evaluating images and maps based on a object's description. Each description specifies objects that must be visible in the images or maps. Your job is to analyze all first-view images and top-view maps for the match of the candidate objects, including their attributes and spatial relationships.
 
-- Input includes: user's description, a top-view map from point clouds, and a first-view image facing the target. The center of the map with a red Bbox highlights the candidate object. The top-left red number on each image is the image id.
-- Your output should be a JSON object with correct/incorrect. 
+# - Input includes: object's description, top-view maps from point clouds, and first-view images facing the candidate. The center of the map with a red Bbox highlights the candidate object. The top-left red number on each image is the image id.
+# - Your output should be a JSON object that includes "correct" if any image in the images match object's description, or "incorrect" if not. 
+
+# Output Example:
+# {
+#     "correctness": "correct",
+# }
+# """
+
+
+discriminator_prompt = """You are a discriminator agent tasked with evaluating images and maps based on a object's description. Each description specifies objects that must be visible in the images or maps. Your job is to analyze all first-view images and top-view maps for the match of the candidate objects, including their attributes and spatial relationships. If all items match the object description, it means match.
+
+- Input includes: object's description, top-view maps from point clouds, and first-view images facing the candidate. The center of the map with a red Bbox highlights the candidate object. The top-left red number on each image is the image id.
+- Your output should be a JSON object that includes "correct" if any image in the images match object's description, or "incorrect" if not. 
 
 Output Example:
-
 {
     "correctness": "correct",
 }

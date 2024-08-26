@@ -13,8 +13,7 @@ from habitat import Env, logger
 from arguments import get_args
 from habitat.config.default import get_config
 
-# from agents.vlnav_agent import Mapping_Agent
-from agents.objnav_agent import Mapping_Agent
+from agents.objnav_agent import ObjectNav_Agent
 import cv2
 from collections import defaultdict
 from tqdm import tqdm, trange
@@ -63,34 +62,21 @@ def main(args, send_queue, receive_queue):
     np.random.seed(config.SEED)
     torch.manual_seed(config.SEED)
     torch.set_grad_enabled(False)
-    
-    HabitatSimActions.extend_action_space("TURN_LEFT_S")
-    HabitatSimActions.extend_action_space("TURN_RIGHT_S")
-
+ 
 
     config.defrost()
-    config.DATASET.SPLIT = args.split
     config.SIMULATOR.HABITAT_SIM_V0.GPU_DEVICE_ID = args.gpu_id
-    config.TASK.POSSIBLE_ACTIONS = config.TASK.POSSIBLE_ACTIONS + [
-        "TURN_LEFT_S",
-        "TURN_RIGHT_S",
-    ]
-    config.TASK.ACTIONS.TURN_LEFT_S = habitat.config.Config()
-    config.TASK.ACTIONS.TURN_LEFT_S.TYPE = "TurnLeftAction_S"
-    config.TASK.ACTIONS.TURN_RIGHT_S = habitat.config.Config()
-    config.TASK.ACTIONS.TURN_RIGHT_S.TYPE = "TurnRightAction_S"
-    config.SIMULATOR.ACTION_SPACE_CONFIG = "PreciseTurn"
     config.freeze()
 
     # print(config)
     env = Env(config=config)
 
     follower = ShortestPathFollowerCompat(
-        env._sim, 0.3, False
+        env._sim, 0.1, False
     )
 
     args.turn_angle = config.SIMULATOR.TURN_ANGLE
-    agent = Mapping_Agent(args, follower)
+    agent = ObjectNav_Agent(args, follower)
 
     agg_metrics: Dict = defaultdict(float)
 
@@ -136,7 +122,7 @@ def main(args, send_queue, receive_queue):
             else:
                 agent_state = env.sim.get_agent_state()
                 
-                action = agent.mapping(obs, agent_state, send_queue, receive_queue)
+                action = agent.act(obs, agent_state, send_queue, receive_queue)
 
             if action == None:
                 continue

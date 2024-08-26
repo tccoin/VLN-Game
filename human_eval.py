@@ -38,7 +38,7 @@ def main():
     args = get_args()
 
     # config=habitat.get_config("envs/habitat/configs/tasks/objectnav_gibson.yaml")
-    config = get_config(config_paths=["configs/objectnav_hm3d.yaml"])
+    config = get_config(config_paths=["configs/vlobjectnav_replica.yaml"])
     # config = get_config(config_paths=["configs/"+ args.task_config])
     config.defrost()
     config.TASK.MEASUREMENTS.append("TOP_DOWN_MAP")
@@ -48,12 +48,15 @@ def main():
         config=config
     )
     env.seed(10000)
+    
+    num_episodes = len(env.episodes)
+    print("num_episodes: ", num_episodes)
 
     agg_metrics: Dict = defaultdict(float)
 
     observations = env.reset()
 
-    num_episodes = 20
+    # num_episodes = 20
     count_episodes = 0
 
     while count_episodes < num_episodes:
@@ -103,6 +106,9 @@ def main():
             top_down_map = draw_top_down_map(env.get_metrics(), observations["rgb"].shape[0])
             cv2.imshow("top_down_map", top_down_map)
             
+            metrics = env.get_metrics()
+            print(metrics["distance_to_goal"])
+            
 
         print("Episode finished after {} steps.".format(count_steps))
 
@@ -116,6 +122,7 @@ def main():
             print("your navigation was not successful")
 
         metrics = env.get_metrics()
+        print(metrics["distance_to_goal"])
 
 
         # for m, v in metrics.items():

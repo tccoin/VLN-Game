@@ -97,7 +97,7 @@ class Explored_Agent(ObjectNav_Agent):
         
 
         get_results, detections = self.obj_det_seg.detect(image, image_rgb) 
-        self.classes = self.obj_det_seg.classes
+        # self.classes = self.obj_det_seg.classes
         
         clip_s_time = time.time()
         image_crops, image_feats, current_image_feats = compute_clip_features(
@@ -340,7 +340,7 @@ class Explored_Agent(ObjectNav_Agent):
             action = self.ffm_act()
 
  
-        # action = self.keyboard_act()
+        action = self.keyboard_act()
         
         vis_image = None
         if self.args.print_images or self.args.visualize:
@@ -376,8 +376,8 @@ class Explored_Agent(ObjectNav_Agent):
 
         # transfer_time = time.time()
         # time_step_info += 'transfer data time:%.3fs\n'%(transfer_time - dd_map_time)
-        # cv2.imshow("episode_n {}".format(self.episode_n), self.annotated_image)
-        # cv2.waitKey(1)
+        cv2.imshow("episode_n {}".format(self.episode_n), self.annotated_image)
+        cv2.waitKey(1)
         # print(time_step_info)
 
         return action

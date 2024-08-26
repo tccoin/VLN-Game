@@ -17,60 +17,11 @@ category_to_id_gibson = [
         "tv"
 ]
 
-mp3d_category_id = {
-    'void': 1,
-    'chair': 2,
-    'sofa': 3,
-    'plant': 4,
-    'bed': 5,
-    'toilet': 6,
-    'tv_monitor': 7,
-    'table': 8,
-    'refrigerator': 9,
-    'sink': 10,
-    'stairs': 11,
-    'fireplace': 12
-}
-
-# mp_categories_mapping = [4, 11, 15, 12, 19, 23, 6, 7, 15, 38, 40, 28, 29, 8, 17]
-
-mp_categories_mapping = [4, 11, 15, 12, 19, 23, 26, 24, 28, 38, 21, 16, 14, 6, 16]
-
-hm3d_category = [
-        "chair",
-        "sofa",
-        "plant",
-        "bed",
-        "toilet",
-        "tv_monitor",
-        "bathtub",
-        "shower",
-        "fireplace",
-        "appliances",
-        "towel",
-        "sink",
-        "chest_of_drawers",
-        "table",
-        "stairs"
-]
-
-
-coco_categories_mapping = {
-    56: 0,  # chair
-    57: 1,  # couch
-    58: 2,  # potted plant
-    59: 3,  # bed
-    61: 4,  # toilet
-    62: 5,  # tv
-    60: 6,  # dining-table
-    69: 7,  # oven
-    71: 8,  # sink
-    72: 9,  # refrigerator
-    73: 10,  # book
-    74: 11,  # clock
-    75: 12,  # vase
-    41: 13,  # cup
-    39: 14,  # bottle
+category_to_id_replica = {
+        20: "chair",
+        76: "sofa",
+        87: "tv-screen",
+        80: "table"
 }
 
 color_palette = [
