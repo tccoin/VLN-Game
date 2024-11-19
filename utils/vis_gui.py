@@ -355,7 +355,7 @@ class ReconstructionWindow:
         
         # update view
         camera_position = traj[-1][:3, 3]
-        self.widget3d.look_at(camera_position+[0, 0, 0], camera_position+[-0.5, 4, 0], [0, 1, 0])
+        # self.widget3d.look_at(camera_position+[0, 0, 0], camera_position+[-0.5, 6, 0], [0, 1, 0])
         
         self.input_depth_image.update_image(
             input_depth.colorize_depth(
@@ -425,6 +425,13 @@ class ReconstructionWindow:
             material = rendering.MaterialRecord()
             material.shader = "defaultUnlit"
             self.widget3d.scene.add_geometry('points', pcd, material)  # Add material argument
+            
+            while True:
+                try:
+                    self.widget3d.scene.scene.render_to_image(self.on_top_rendered)
+                    break  # 成功后跳出循环
+                except Exception as e:
+                    print(f"Error rendering image, retrying: {e}")
 
 
             # bboxs = [o3d.geometry.AxisAlignedBoundingBox(min_bound, max_bound) for min_bound, max_bound in bbox_sum]
@@ -466,7 +473,57 @@ class ReconstructionWindow:
         # self.widget3d.scene.add_geometry("goal_pose", goal_pcd, goal_material)
 
 
+    def on_top_rendered(self, image):
+        
+        dump_dir = "{}/{}/episodes/{}".format(self.args.dump_location,
+                                    self.args.exp_name, self.episode_n)
+        if not os.path.exists(dump_dir):
+            os.makedirs(dump_dir)
+        image_filename = '{}/Vis-{}.jpeg'.format(dump_dir, self.idx)
+        
 
+        # # Convert the open3d.cuda.pybind.geometry.Image object to a numpy array
+        np_image = np.asarray(image)
+        # cv2.imwrite(image_filename, np_image)
+
+        # Convert the numpy array to a PIL Image object
+        pil_image = Image.fromarray(np_image)
+        
+        # # add the number on the image
+        # # Initialize drawing context
+        # draw = ImageDraw.Draw(pil_image)
+        # # Define the text to be added and its position
+        # font_size = 40
+
+        # try:
+        #     # Attempt to use a truetype font if available
+        #     font = ImageFont.truetype("arial.ttf", font_size)
+        # except IOError:
+        #     # If the truetype font is not available, use the default PIL font
+        #     font = ImageFont.load_default(font_size)
+
+        # # Calculate text size to center it
+        # # bbox = draw.textbbox((0, 0), text, font=font)
+        # text_width = 45
+        # text_height = 45
+        # padding = 3
+        # position = (3, 3)  # Adjust position as needed
+
+        # # Define the rectangle coordinates
+        # rect_x0 = position[0] - padding
+        # rect_y0 = position[1] - padding
+        # rect_x1 = position[0] + text_width + padding
+        # rect_y1 = position[1] + text_height + padding
+
+        # # Draw the white rectangle
+        # draw.rectangle([rect_x0, rect_y0, rect_x1, rect_y1], fill="white")
+
+        # # Add text to image
+        # draw.text(position, str(self.idx), fill="red", font=font)
+
+        # Save the image using PIL
+        pil_image.save(image_filename)
+        # print(f"Saved screenshot to {image_filename}")
 
 
 

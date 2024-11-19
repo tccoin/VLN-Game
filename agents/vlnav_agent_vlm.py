@@ -78,11 +78,7 @@ class VLObjectNav_Agent(ObjectNav_Agent):
         self.candidate_objects = []
         self.image_list = []
         
-        
-        self.dump_dir = "{}/{}/episodes".format(self.args.dump_location,
-                                    self.args.exp_name)
-        
-        
+
     def reset(self) -> None:
         super().reset()
         self.candidate_num = 0
@@ -286,6 +282,8 @@ class VLObjectNav_Agent(ObjectNav_Agent):
             self.annotated_image  = vis_result_fast(image, detections, self.classes)
             vis_image = self._visualize(self.obstacle_map, self.explored_map, target_edge_map, self.goal_map, self.target_data)
             
+            self.save_rgbd_image(image, depth)
+            
 
         
         # ------------------------------------------------------------------
@@ -307,7 +305,7 @@ class VLObjectNav_Agent(ObjectNav_Agent):
         clip_candidate_objects = []
         candidate_id = []
         clip_candidate_objects_id = []
-        similarity_threshold = 0.27
+        similarity_threshold = 0.26
         det_threshold = 0.85
         
         if "chair" in self.target_data:
@@ -318,8 +316,7 @@ class VLObjectNav_Agent(ObjectNav_Agent):
             self.objects, target_similarities = color_by_clip_sim("looks like a " + self.target_data, 
                                                         self.objects, 
                                                         self.clip_model, 
-                                                        self.clip_tokenizer,
-                                                        color_set=False)
+                                                        self.clip_tokenizer)
             
             target_similarities = target_similarities.cpu().numpy()
             candidate_target = [self.objects[i] for i in range(len(self.objects)) 
@@ -374,7 +371,8 @@ class VLObjectNav_Agent(ObjectNav_Agent):
                 
                 base64_image_list = []
                 for id in candidate_id:
-                    image_filename = '{}/{}/Vis-{}.jpeg'.format(self.dump_dir, self.episode_n, id)
+                    dump_dir = "{}/{}/episodes".format(self.args.dump_location, self.args.exp_name)
+                    image_filename = '{}/{}/Vis-{}.jpeg'.format(dump_dir, self.episode_n, id)
                     while True:
                         if os.path.exists(image_filename) and os.path.getsize(image_filename) > 0:
                             try:
@@ -390,7 +388,7 @@ class VLObjectNav_Agent(ObjectNav_Agent):
                                             
                 if self.args.vln_mode == "vlm":
                     candidate_index = self.equ_ranking.generator_search(base64_image_list, candidate_id)
-                elif self.args.vln_mode == "vlm_generator":
+                elif self.args.vln_mode == "vlm_rank":
                     candidate_index = self.equ_ranking.generator_search(base64_image_list, candidate_id, 5)
                 elif self.args.vln_mode == "vlm_game":
                     candidate_index = self.equ_ranking.equilibrium_search(base64_image_list, candidate_id)
@@ -434,6 +432,9 @@ class VLObjectNav_Agent(ObjectNav_Agent):
         # elif len(self.objects) > 0 and max(similarities) < similarity_threshold:
         #     self.found_goal = False
         
+        similarity_map = np.max(np.stack([self.similarity_obj_map, self.similarity_img_map]), axis=0)
+        self.save_similarity_map(similarity_map)
+        
         if not self.found_goal:
             stg = None
             if np.sum(self.goal_map) == 1:
@@ -459,7 +460,7 @@ class VLObjectNav_Agent(ObjectNav_Agent):
                                                     target_point_list[i][1]),
                                                     (self.local_w/8, self.local_h/8),
                                                     (self.local_w, self.local_h))
-                    similarity_map = self.similarity_img_map
+                    # similarity_map = self.similarity_img_map
                     # similarity_map = np.max(np.stack([self.similarity_obj_map, self.similarity_img_map]), axis=0)
                     cropped_sim_map = similarity_map[fmb[0]:fmb[1], fmb[2]:fmb[3]]
                     simi_max_score.append(np.max(cropped_sim_map))

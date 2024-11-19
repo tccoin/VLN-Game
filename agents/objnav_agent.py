@@ -253,7 +253,6 @@ class ObjectNav_Agent(Agent):
         image_rgb = observations['rgb']
         depth = observations['depth']
         image = transform_rgb_bgr(image_rgb) 
-        image_pil = Image.fromarray(image_rgb)
         self.annotated_image = image
         
         get_results, detections = self.obj_det_seg.detect(image, image_rgb, self.classes) 
@@ -389,7 +388,6 @@ class ObjectNav_Agent(Agent):
 
 
         target_score, target_edge_map, target_point_list = detect_frontier(self.explored_map, self.obstacle_map, self.current_grid_pose, threshold_point=8)
-        
          
         v_map_time = time.time()
         # print('voxel map: %.3f秒'%(v_map_time - f_map_time)) 
@@ -451,9 +449,9 @@ class ObjectNav_Agent(Agent):
             clip_candidate_objects = [self.objects[i] for i in range(len(self.objects)) 
                                 if (similarities[i] > similarity_threshold) and self.objects[i]['num_detections'] > 1 and \
                                     self.objects[i]['class_name'][np.argmax(self.objects[i]['conf'])] in self.text_queries]
-            candidate_id = [i for i in range(len(self.objects)) 
-                                if (similarities[i] > similarity_threshold) and self.objects[i]['num_detections'] > 1 and \
-                                    self.objects[i]['class_name'][np.argmax(self.objects[i]['conf'])] in self.text_queries] 
+            # candidate_id = [i for i in range(len(self.objects)) 
+            #                     if (similarities[i] > similarity_threshold) and self.objects[i]['num_detections'] > 1 and \
+            #                         self.objects[i]['class_name'][np.argmax(self.objects[i]['conf'])] in self.text_queries] 
             
             for i in range(len(self.objects)):
                 if stairs_similarities[i] > 0.24 and self.objects[i]['class_name'][np.argmax(self.objects[i]['conf'])] == "stairs":
@@ -500,6 +498,9 @@ class ObjectNav_Agent(Agent):
         else:
             self.found_goal = False
         
+        similarity_map = np.max(np.stack([self.similarity_obj_map, self.similarity_img_map]), axis=0)
+        self.save_similarity_map(similarity_map)
+            
         if not self.found_goal:
             stg = None
             if np.sum(self.goal_map) == 1:
@@ -507,6 +508,7 @@ class ObjectNav_Agent(Agent):
                 stg = f_pos[0]
             
             self.goal_map = np.zeros((self.local_w, self.local_h))
+            
 
             if len(clip_candidate_objects) > 0 and \
                 self.objects[np.argmax(similarities)]['num_detections'] < 25 :
@@ -528,7 +530,7 @@ class ObjectNav_Agent(Agent):
                                                     target_point_list[i][1]),
                                                     (self.local_w/12, self.local_h/12),
                                                     (self.local_w, self.local_h))
-                    similarity_map = np.max(np.stack([self.similarity_obj_map, self.similarity_img_map]), axis=0)
+                    
                     cropped_sim_map = similarity_map[fmb[0]:fmb[1], fmb[2]:fmb[3]]
                     simi_max_score.append(np.max(cropped_sim_map))
 
@@ -685,6 +687,7 @@ class ObjectNav_Agent(Agent):
             self.annotated_image  = vis_result_fast(image, detections, self.classes)
             vis_image = self._visualize(self.obstacle_map, self.explored_map, target_edge_map, self.goal_map, self.text_queries)
             
+            self.save_rgbd_image(image, depth)
 
         dd_map_time = time.time()
         time_step_info += '2d map building time:%.3fs\n'%(dd_map_time - f_map_time)
@@ -718,8 +721,8 @@ class ObjectNav_Agent(Agent):
         # transfer_time = time.time()
         # time_step_info += 'transfer data time:%.3fs\n'%(transfer_time - dd_map_time)
 
-        cv2.imshow("episode_n {}".format(self.episode_n), self.annotated_image)
-        cv2.waitKey(1)
+        # cv2.imshow("episode_n {}".format(self.episode_n), self.annotated_image)
+        # cv2.waitKey(1)
         # print(time_step_info)
 
         return action
@@ -1250,6 +1253,36 @@ class ObjectNav_Agent(Agent):
  
         return [int(gx1), int(gx2), int(gy1), int(gy2)]
     
+    def save_rgbd_image(self, rgb_image, depth):
+        vis_image_rgb = np.ones((480, 1280, 3)).astype(np.uint8) * 255
+        vis_image_rgb[0:480, 0:640] = rgb_image 
+        # Normalize the depth values to the range 0-255
+        depth_normalized = cv2.normalize(depth, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+
+        # Apply a colormap (e.g., COLORMAP_JET)
+        depth_color = cv2.applyColorMap(depth_normalized, cv2.COLORMAP_JET)
+
+        vis_image_rgb[0:480, 640:1280] = depth_color
+        
+        ep_dir = '{}episodes/{}/eps_rgbd_{}/'.format(
+            self.dump_dir, self.args.rank, self.episode_n)
+        if not os.path.exists(ep_dir):
+            os.makedirs(ep_dir)
+        fn = ep_dir + 'Vis-{}.png'.format(self.l_step)
+        cv2.imwrite(fn, vis_image_rgb)
+        
+    def save_similarity_map(self, map):
+        depth_normalized = cv2.normalize(map, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+
+        # Apply a colormap (e.g., COLORMAP_JET)
+        depth_color = cv2.applyColorMap(depth_normalized, cv2.COLORMAP_JET)
+
+        ep_dir = '{}episodes/{}/eps_rgbd_{}/'.format(
+            self.dump_dir, self.args.rank, self.episode_n)
+        if not os.path.exists(ep_dir):
+            os.makedirs(ep_dir)
+        fn = ep_dir + 'Vis-simi-{}.png'.format(self.l_step)
+        cv2.imwrite(fn, depth_color)
     
     def _visualize(self, map_pred, exp_pred, map_edge, goal_map, text_queries):
 

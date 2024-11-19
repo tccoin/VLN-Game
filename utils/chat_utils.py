@@ -8,11 +8,6 @@ import requests
 import json
 from arguments import get_args
 
-import openai
-from openai.error import OpenAIError
-openai.organization = "org-ZCl0HLFc8HhQCrrtvdiPccEz"
-openai.api_key = "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"
-api_key = "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"
 
 gpt_name = [
             'text-davinci-003',
@@ -23,6 +18,11 @@ gpt_name = [
 
 args = get_args()
 
+import openai
+from openai.error import OpenAIError
+openai.api_key = args.api
+api_key = args.api
+
 
 
 def chat_with_gpt(chat_history):
@@ -31,6 +31,7 @@ def chat_with_gpt(chat_history):
         try: 
             response = openai.ChatCompletion.create(
                 model='gpt-4o', 
+                response_format = { "type": "json_object" },
                 messages=chat_history,
                 temperature=0.5,
             )

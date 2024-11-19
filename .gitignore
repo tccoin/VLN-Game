@@ -14,4 +14,12 @@ test*
 saved_pcd
 create*
 visualize*
-
+agents/dataset_mapping_agent.py
+agents/explored_agent.py
+human_eval.py
+replice.md
+setup*
+configs/objectnav_gibson.yaml
+configs/objectnav_hm3d_v2.yaml
+configs/vlobjectnavhm3d_goat.yaml
+configs/vlobjectnavhm3d_replica.yaml

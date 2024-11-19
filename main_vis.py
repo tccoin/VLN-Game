@@ -44,6 +44,8 @@ def transform_rgb_bgr(image):
 
 # def generate_point_cloud(window):
 def main(args, send_queue, receive_queue):
+    
+    args.exp_name = "objectnav-"+ args.detector
 
     log_dir = "{}/logs/{}/".format(args.dump_location, args.exp_name)
 
@@ -117,7 +119,7 @@ def main(args, send_queue, receive_queue):
 
             # dd_s_time = time.time()
   
-            if count_episodes < 6:
+            if count_episodes < 5:
                 action = 0
             else:
                 agent_state = env.sim.get_agent_state()
