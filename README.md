@@ -4,9 +4,10 @@
 
 We proposed a new framework to explore and search for the language descriptive targets in unknown environment based on Large Vision Language Model. Our work is based on [Concept-Graph](https://github.com/concept-graphs/concept-graphs?tab=readme-ov-file) and [L3MVN](https://sites.google.com/view/l3mvn), implemented in PyTorch. Part of this work was conducted during the first author’s internship at Tencent Robotics X.
 
-**Author:** Bangguo Yu$^{1, 2}$, Yuzhen Liu$^1$$^{\dagger}$, Lei Han$^1$, Hamidreza Kasaei$^2$$^{\dagger}$, Tingguang Li$^1$$^{\dagger}$, and Ming Cao$^2$
+**Author:** Bangguo Yu<sup>1, 2</sup>, Yuzhen Liu<sup>1</sup><sup>†</sup>, Lei Han<sup>1</sup>, Hamidreza Kasaei<sup>2</sup><sup>†</sup>, Tingguang Li<sup>1</sup><sup>†</sup>, and Ming Cao<sup>2</sup>
 
-**Affiliation:** $^1$Tencent Robotics X     $^2$University of Groningen
+**Affiliation:** <sup>1</sup>Tencent Robotics X     <sup>2</sup>University of Groningen
+
 
 ## Abstract
 
@@ -14,7 +15,7 @@ Following human instructions to explore and search for a specified target in an 
 
 ![framework](img/framework.png)
 
-![simulation](img/sim.png)
+
 
 ## Installation
 
@@ -133,6 +134,8 @@ python main_vis_vec.py
 
 You can also add `-v 1` to enable the Open3D visualization UI to check the maps, and `-n 1` to set the number of multiprocessing.
 
+![simulation](img/sim.gif)
+
 #### Language-goal navigation
 For evaluating the language-goal navigation task, the OpenAI API should be set firstly in `arguments.py`, then run:
 ```
@@ -169,7 +172,7 @@ We provide docker containers for object-goal navigation task. This works on mach
    ```
    sudo docker run --runtime=nvidia -e NVIDIA_DRIVER_CAPABILITIES=all  -e "DISPLAY=$DISPLAY" -v /tmp/.X11-unix:/tmp/.X11-unix -e LIBGL_ALWAYS_SOFTWARE=1 --net=host -it -v /path/to/data/:/root/VLN-GPT/data --gpus all ybgsdu/vln_llmgame:objnav-dino-stair /bin/bash -c "cd /root/VLN-GPT/ && ./setup_obj.sh 1 0"
     ```
-    Make sure to adjust the last two parameters `1` and `0` for the number of multiprocessing and the GPU_ID, respectively based on your own enrionment.
+    Make sure to adjust the last two parameters `1` and `0`  based on your own enrionment for the number of multiprocessing and the GPU_ID, respectively.
 
 Since the language goal navigation relies on the rendering of Open3D, which can't run in this docker containers, we only run language goal navigation task locally.
 
