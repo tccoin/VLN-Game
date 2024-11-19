@@ -137,13 +137,13 @@ You can also add `-v 1` to enable the Open3D visualization UI to check the maps,
 ![simulation](img/sim.gif)
 
 #### Language-goal navigation
-For evaluating the language-goal navigation task, the OpenAI API should be set firstly in `arguments.py`, then run:
+For evaluating the language-goal navigation task, the OpenAI API should be prepared firstly, then run:
 ```
-python main_vln.py
+python main_vln.py --api xx-xxxx
 ```
 For multiprocessing, run:
 ```
-python main_vln_vec.py
+python main_vln_vec.py --api xx-xxxx
 ```
 
 
@@ -168,7 +168,7 @@ We provide docker containers for object-goal navigation task. This works on mach
     #Restart the Docker daemon to load the changes:
     sudo systemctl restart docker
     ```
-3. Mount the data into the docker when you run the docker
+3. Mount the `data` folder into the docker when you run the docker
    ```
    sudo docker run --runtime=nvidia -e NVIDIA_DRIVER_CAPABILITIES=all  -e "DISPLAY=$DISPLAY" -v /tmp/.X11-unix:/tmp/.X11-unix -e LIBGL_ALWAYS_SOFTWARE=1 --net=host -it -v /path/to/data/:/root/VLN-GPT/data --gpus all ybgsdu/vln_llmgame:objnav-dino-stair /bin/bash -c "cd /root/VLN-GPT/ && ./setup_obj.sh 1 0"
     ```
