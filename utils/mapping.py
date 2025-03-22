@@ -362,7 +362,8 @@ def merge_overlap_objects(cfg, objects: MapObjectList, overlap_matrix: np.ndarra
                     objects[j] = merge_obj2_into_obj1(cfg, objects[j], objects[i], run_dbscan=True)
                     kept_objects[i] = False
         else:
-            break
+            break # NOTE: should be continue??
+            # continue
     
     # Remove the objects that have been merged
     new_objects = [obj for obj, keep in zip(objects, kept_objects) if keep]

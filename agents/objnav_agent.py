@@ -52,8 +52,11 @@ from utils.explored_map_utils import (
 )
 import utils.pose as pu
 
+# import keyboard
+
 # Disable torch gradient computation
 torch.set_grad_enabled(False)
+   
    
 
 FORWARD_KEY="w"
@@ -134,13 +137,16 @@ class ObjectNav_Agent(Agent):
         self.turn_angle = args.turn_angle
         self.init_map_and_navigation_param()
         
-        
+        ### for vidoe saving ###
+        self.vis_frames = []
         # ------------------------------------------------------------------
 
     def reset(self) -> None:
         self.episode_n += 1
         self.init_map_and_pose()
         self.init_map_and_navigation_param()
+        ### for vidoe saving ###
+        self.vis_frames = []
         
     def init_map_and_pose(self):
         # local map
@@ -464,6 +470,7 @@ class ObjectNav_Agent(Agent):
                             downstair_candidate_objects.append(self.objects[i]['pcd'].points[min_index])
                     else:
                         if self.objects[i]['bbox'].max_bound[1] > camera_position[1] - 0.8:
+                            # NOTE multy: what does this if statment choice mean? determine how many stair goes up and how many goes down?
                             max_index = np.argmax(np.asarray(self.objects[i]['pcd'].points)[:, 1])
                             upstair_candidate_objects.append(self.objects[i]['pcd'].points[max_index])
                         else:
@@ -541,7 +548,7 @@ class ObjectNav_Agent(Agent):
                         # print(simi_max_score)
                         global_item = simi_max_score.index(max(simi_max_score))
         
-                if np.array_equal(stg, target_point_list[global_item]) and target_score[global_item] < 30:
+                if np.array_equal(stg , target_point_list[global_item]) and target_score[global_item] < 30:
                     self.curr_frontier_count += 1
                 else:
                     self.curr_frontier_count = 0
@@ -653,7 +660,10 @@ class ObjectNav_Agent(Agent):
             one_more_point = (vector / np.linalg.norm(vector)) * 0.5 + plan_path[-1]
             one_more_point[1] = plan_path[-1][1]
             # if one_more_point[1] >= self.Open3d_goal_pose_old[1]:
+            print("init agent pos:", self.init_agent_position)
+            print("goal prev:", self.habitat_goal_pose)
             self.habitat_goal_pose = one_more_point
+            print("goal new:", self.habitat_goal_pose)
             plan_path = self.search_navigable_path(
                 one_more_point
             )
@@ -664,7 +674,7 @@ class ObjectNav_Agent(Agent):
             #     )
             #     self.habitat_goal_pose = self.Open3d_goal_pose_old
                 
-        if len(plan_path) > 1:
+        if len(plan_path) > 1 and not self.args.fmm_planner:
             plan_path = np.dot(R_habitat2open3d.T, (np.array(plan_path) - self.init_agent_position).T).T
             
             action = self.greedy_follower_act(plan_path)
@@ -727,7 +737,61 @@ class ObjectNav_Agent(Agent):
 
         return action
     
+    def keyboard_actor(self, observations: Observations, agent_state, send_queue= Queue(), receive_queue= Queue()):
+        # ------------------------------------------------------------------
+        ##### At first step, get the object name and init the visualization
+        # ------------------------------------------------------------------
+        if self.l_step == 0:
+            self.init_sim_position = agent_state.sensor_states["depth"].position
+            self.init_agent_position = agent_state.position
+            self.init_sim_rotation = quaternion.as_rotation_matrix(agent_state.sensor_states["depth"].rotation)
 
+            cate_object = category_to_id[observations['objectgoal'][0]]
+            # cate_object = category_to_id_replica[observations['objectgoal'][0]]
+            if cate_object == 'sofa':
+                cate_object = 'couch'
+            if cate_object == 'tv_monitor':
+                cate_object = 'tv'
+            
+            if cate_object == 'tv' or cate_object == 'plant' or cate_object == 'chair' or cate_object == 'toilet':
+                self.text_queries = "looks like a " + cate_object
+            else:
+                self.text_queries = cate_object
+                
+        # ------------------------------------------------------------------
+        ##### Preprocess the observation
+        # ------------------------------------------------------------------
+        image_rgb = observations['rgb']
+        depth = observations['depth']
+        image = transform_rgb_bgr(image_rgb) 
+        self.annotated_image = image
+        
+        # classes for climing stairs
+        self.classes=["stairs", "floor", "other"]
+        get_results, detections = self.obj_det_seg.detect(image, image_rgb, self.classes) 
+        
+        vis_image = None
+        if self.args.print_images or self.args.visualize:
+            self.annotated_image  = vis_result_fast(image, detections, self.classes)
+            # save only annotated image
+            ep_dir = '{}episodes/{}/eps_{}/'.format(
+                self.dump_dir, self.args.rank, self.episode_n)
+            if not os.path.exists(ep_dir):
+                os.makedirs(ep_dir)
+            fn = ep_dir + 'Annotated-{}.png'.format(self.l_step)
+            cv2.imwrite(fn, self.annotated_image)
+            cv2.imwrite(self.dump_dir + "current_state.png", self.annotated_image)
+            
+            self.vis_frames.append(cv2.cvtColor(self.annotated_image, cv2.COLOR_BGR2RGB))
+            # vis_image = self._visualize(self.obstacle_map, self.explored_map, target_edge_map, self.goal_map, self.text_queries)
+            
+            self.save_rgbd_image(image, depth)
+        
+        action = self.keyboard_act()
+        
+        return action
+    
+    
     def search_navigable_path(self, original_point, offset = 0.1):
         
         plan_path = self.follower.get_path_points(
@@ -761,26 +825,54 @@ class ObjectNav_Agent(Agent):
         ##### Otherwise, use the LLM to select the goal
         # ------------------------------------------------------------------
 
-        keystroke = cv2.waitKey(0)
+        # keystroke = cv2.waitKey(0)
+        # # keystroke = input("Enter a key: ")
+        # action = None
+        # if keystroke == ord(FORWARD_KEY):
+        #     action = HabitatSimActions.MOVE_FORWARD
+        #     print("action: FORWARD")
+        # elif keystroke == ord(LEFT_KEY):
+        #     action = HabitatSimActions.TURN_LEFT
+        #     print("action: LEFT")
+        # elif keystroke == ord(RIGHT_KEY):
+        #     action = HabitatSimActions.TURN_RIGHT
+        #     print("action: RIGHT")
+        # elif keystroke == ord(UP_KEY):
+        #     action = HabitatSimActions.LOOK_UP
+        #     print("action: UP")
+        #     self.eve_angle += 30
+        # elif keystroke == ord(DOWN_KEY):
+        #     action = HabitatSimActions.LOOK_DOWN
+        #     print("action: DOWN")
+        #     self.eve_angle -= 30
+        # elif keystroke == ord(FINISH):
+        #     action = HabitatSimActions.STOP
+        #     print("action: FINISH")
+        # else:
+        #     print("INVALID KEY")
+        
+        # keystroke = keyboard.read_key()
+        keystroke = input("Enter a key: ")
+        print(keystroke)
         action = None
-        if keystroke == ord(FORWARD_KEY):
+        if keystroke == FORWARD_KEY:
             action = HabitatSimActions.MOVE_FORWARD
             print("action: FORWARD")
-        elif keystroke == ord(LEFT_KEY):
+        elif keystroke == LEFT_KEY:
             action = HabitatSimActions.TURN_LEFT
             print("action: LEFT")
-        elif keystroke == ord(RIGHT_KEY):
+        elif keystroke == RIGHT_KEY:
             action = HabitatSimActions.TURN_RIGHT
             print("action: RIGHT")
-        elif keystroke == ord(UP_KEY):
+        elif keystroke == UP_KEY:
             action = HabitatSimActions.LOOK_UP
             print("action: UP")
             self.eve_angle += 30
-        elif keystroke == ord(DOWN_KEY):
+        elif keystroke == DOWN_KEY:
             action = HabitatSimActions.LOOK_DOWN
             print("action: DOWN")
             self.eve_angle -= 30
-        elif keystroke == ord(FINISH):
+        elif keystroke == FINISH:
             action = HabitatSimActions.STOP
             print("action: FINISH")
         else:
@@ -1371,17 +1463,22 @@ class ObjectNav_Agent(Agent):
                                 font, fontScale, color, thickness,
                                 cv2.LINE_AA)
 
-        if self.args.print_images:
-            vis_image_rgb = init_vis_image(text_queries, self.last_action)
-            vis_image_rgb[50:530, 15:655] = self.annotated_image 
-            vis_image_rgb[50:530, 670:1150] = vis_image
+        
+        vis_image_rgb = init_vis_image(text_queries, self.last_action)
+        vis_image_rgb[50:530, 15:655] = self.annotated_image 
+        vis_image_rgb[50:530, 670:1150] = vis_image
             
+        ## save for video
+        self.vis_frames.append(cv2.cvtColor(vis_image_rgb, cv2.COLOR_BGR2RGB))
+        
+        if self.args.print_images:
             ep_dir = '{}episodes/{}/eps_{}/'.format(
                 self.dump_dir, self.args.rank, self.episode_n)
             if not os.path.exists(ep_dir):
                 os.makedirs(ep_dir)
             fn = ep_dir + 'Vis-{}.png'.format(self.l_step)
             cv2.imwrite(fn, vis_image_rgb)
+            cv2.imwrite(self.dump_dir + "current_state.png", vis_image_rgb)
 
         # cv2.imshow("episode_n {}".format(self.episode_n), vis_image_show)
         # cv2.waitKey(1)

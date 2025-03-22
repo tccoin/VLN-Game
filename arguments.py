@@ -18,7 +18,7 @@ def get_args():
                         help='path to dump models and log (default: ./tmp/)')
     parser.add_argument('--exp_name', type=str, default="objectnav",
                         help='experiment name (default: exp1)')
-    parser.add_argument('-v', '--visualize', type=int, default=1,
+    parser.add_argument('-v', '--visualize', type=int, default=0,
                         help="""1: Render the observation and
                                    the predicted semantic map,
                                 2: Render the observation with semantic
@@ -69,7 +69,7 @@ def get_args():
     parser.add_argument("--nms_threshold", type=float, default=0.5)
 
     parser.add_argument("--sam_variant", type=str, default="mobilesam",
-                        choices=['fastsam', 'mobilesam', "lighthqsam"])
+                        choices=['fastsam', 'mobilesam', "lighthqsam", "sam"])
     parser.add_argument("--detector", type=str, default="dino", 
                         choices=["yolo", "dino", "none"], 
                         help="If none, no tagging and detection will be used and the SAM will be run in dense sampling mode. ")
@@ -94,6 +94,17 @@ def get_args():
     parser.add_argument('--load', type=str, default="0",
                     help="""model path to load,
                             0 to not reload (default: 0)""")
+    
+    # planning 
+    parser.add_argument('--fmm_planner', action="store_true",
+                        help="if set, the planner will use the Fast Marching Method")
+    
+    # debugging
+    parser.add_argument('--skip_frames', type=int, default=5,
+                        help="skip the first n frames")
+    parser.add_argument('--keyboard_actor', action="store_true",
+                        help="if set, the actor will be controlled by the keyboard")
+    
     # parse arguments
     args = parser.parse_args()
 

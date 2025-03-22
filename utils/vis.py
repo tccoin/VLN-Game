@@ -18,7 +18,7 @@ def vis_result_fast(
     image: np.ndarray, 
     detections: sv.Detections, 
     classes: list[str], 
-    color: Color | ColorPalette = ColorPalette.default(), 
+    color: Color | ColorPalette = ColorPalette.DEFAULT,
     instance_random_color: bool = False,
     draw_bbox: bool = True,
 ) -> np.ndarray:
@@ -27,15 +27,18 @@ def vis_result_fast(
     This is fast but of the same resolution of the input image, thus can be blurry. 
     '''
     # annotate image with detections
+    # sv.BoundingBoxAnnotator
     box_annotator = sv.BoxAnnotator(
         color = color,
-        text_scale=0.3,
-        text_thickness=1,
-        text_padding=2,
+        thickness=1,
+        # text_scale=0.3,
+        # text_thickness=1,
+        # text_padding=2,
     )
     mask_annotator = sv.MaskAnnotator(
         color = color
     )
+    label_annotator = sv.LabelAnnotator()
     labels = [
         f"{classes[class_id]} {confidence:0.2f}" 
         for _, _, confidence, class_id, _ ,_
@@ -50,7 +53,8 @@ def vis_result_fast(
     annotated_image = mask_annotator.annotate(scene=image.copy(), detections=detections)
     
     if draw_bbox:
-        annotated_image = box_annotator.annotate(scene=annotated_image, detections=detections, labels=labels)
+        annotated_image = box_annotator.annotate(scene=annotated_image, detections=detections) #, labels=labels)
+        annotated_image = label_annotator.annotate(scene=annotated_image, detections=detections, labels=labels)
     return annotated_image
 
 def init_vis_image(goal_name, action = 0):

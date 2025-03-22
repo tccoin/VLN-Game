@@ -11,6 +11,7 @@ import numpy as np
 if "GSA_PATH" in os.environ:
     GSA_PATH = os.environ["GSA_PATH"]
 else:
+    # GSA_PATH = "/workspace_sdc/tiamat_ws/VLN-Game/Grounded-Segment-Anything"
     raise ValueError("Please set the GSA_PATH environment variable to the path of the GSA repo. ")
     
 # Segment-Anything checkpoint
