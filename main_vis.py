@@ -26,6 +26,8 @@ import sys
 sys.path.append(".")
 import time
 
+from constants import category_to_id
+
 from utils.shortest_path_follower import ShortestPathFollowerCompat
 from utils.task import PreciseTurn
 from habitat.sims.habitat_simulator.actions import (
@@ -45,9 +47,14 @@ def transform_rgb_bgr(image):
 # def generate_point_cloud(window):
 def main(args, send_queue, receive_queue):
     
-    args.exp_name = "objectnav-"+ args.detector
+    args.exp_name = args.exp_name + "-" + args.detector
 
     log_dir = "{}/logs/{}/".format(args.dump_location, args.exp_name)
+    
+    video_save_dir = '{}/{}/episodes_video'.format(
+                args.dump_location, args.exp_name)
+    if not os.path.exists(video_save_dir):
+        os.makedirs(video_save_dir)
 
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
@@ -93,9 +100,13 @@ def main(args, send_queue, receive_queue):
     fail_case['detection'] = 0
     fail_case['exploration'] = 0
 
+    per_episode_error = []
+    
     count_episodes = 0
     # for count_episodes in trange(num_episodes):
     start = time.time()
+    
+    # per episode error log
     
     while count_episodes < num_episodes:
         obs = env.reset()
@@ -119,15 +130,22 @@ def main(args, send_queue, receive_queue):
 
             # dd_s_time = time.time()
   
-            if count_episodes < 5:
-                action = 0
+            if count_episodes < args.skip_frames:
+                action = 0 # NOTE multy: debug specific episode
             else:
                 agent_state = env.sim.get_agent_state()
                 
-                action = agent.act(obs, agent_state, send_queue, receive_queue)
+                if not args.keyboard_actor:
+                    action = agent.act(obs, agent_state, send_queue, receive_queue)
+                else:
+                    action = agent.keyboard_actor(obs, agent_state, send_queue, receive_queue)
+            
+            # not skipping first 5 episodes
+            # agent_state = env.sim.get_agent_state()
+            # action = agent.act(obs, agent_state, send_queue, receive_queue)
 
             if action == None:
-                continue
+                continue # NOTE multy: why skip action?
             obs = env.step(action)
 
             count_steps += 1
@@ -150,7 +168,7 @@ def main(args, send_queue, receive_queue):
                 fail_case['collision'] += 1
             else:
                 fail_case['detection'] += 1
-
+                    
         count_episodes += 1
 
         end = time.time()
@@ -177,6 +195,21 @@ def main(args, send_queue, receive_queue):
                     agg_metrics[m + "/" + str(sub_m)] += sub_v
             else:
                 agg_metrics[m] += v
+        
+        case_summary = {}
+        case_summary["habitat_success"] = env.get_metrics()["success"]
+        case_summary['distance_to_goal'] = metrics['distance_to_goal']
+        case_summary['spl'] = metrics['spl']
+        case_summary.update(fail_case.copy())
+        case_summary["upstair_flag"] = agent.upstair_flag
+        case_summary["downstair_flag"] = agent.downstair_flag
+        case_summary["count_steps"] = count_steps
+        case_summary["target"] = category_to_id[obs['objectgoal'][0]]
+        per_episode_error.append(case_summary)
+        with open(log_dir + "all_info.log", 'w') as fp:
+            for item in per_episode_error:
+                # write each item on a new line
+                fp.write("%s\n" % item)
 
         log += "Metrics: "
         log += ", ".join(k + ": {:.3f}".format(v / count_episodes) for k, v in agg_metrics.items()) + " ---({:.0f}/{:.0f})".format(count_episodes, num_episodes)
@@ -185,7 +218,8 @@ def main(args, send_queue, receive_queue):
         logging.info(log)
 
         if args.save_video:
-            imageio.mimsave(video_save_path, frames, fps=2)
+            # imageio.mimsave(video_save_path, frames, fps=2)
+            imageio.mimsave(video_save_path, agent.vis_frames, fps=2)
             print(f"Video saved to {video_save_path}")
      
         

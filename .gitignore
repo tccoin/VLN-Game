@@ -23,3 +23,5 @@ configs/objectnav_gibson.yaml
 configs/objectnav_hm3d_v2.yaml
 configs/vlobjectnav_hm3d_goat.yaml
 configs/vlobjectnav_replica.yaml
+
+third_party

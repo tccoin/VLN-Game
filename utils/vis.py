@@ -29,15 +29,18 @@ def vis_result_fast(
     if color is None:
         color = ColorPalette.default()
     # annotate image with detections
+    # sv.BoundingBoxAnnotator
     box_annotator = sv.BoxAnnotator(
         color = color,
-        text_scale=0.3,
-        text_thickness=1,
-        text_padding=2,
+        thickness=1,
+        # text_scale=0.3,
+        # text_thickness=1,
+        # text_padding=2,
     )
     mask_annotator = sv.MaskAnnotator(
         color = color
     )
+    label_annotator = sv.LabelAnnotator()
     labels = [
         f"{classes[class_id]} {confidence:0.2f}" 
         for _, _, confidence, class_id, _
@@ -52,7 +55,8 @@ def vis_result_fast(
     annotated_image = mask_annotator.annotate(scene=image.copy(), detections=detections)
     
     if draw_bbox:
-        annotated_image = box_annotator.annotate(scene=annotated_image, detections=detections, labels=labels)
+        annotated_image = box_annotator.annotate(scene=annotated_image, detections=detections) #, labels=labels)
+        annotated_image = label_annotator.annotate(scene=annotated_image, detections=detections, labels=labels)
     return annotated_image
 
 def init_vis_image(goal_name, action = 0):
