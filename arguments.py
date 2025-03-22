@@ -41,6 +41,7 @@ def get_args():
                         default="objectnav_hm3d.yaml",
                         help="path to config yaml containing task information")
     parser.add_argument('--episode_count', type=int, default=-1)
+    parser.add_argument('--split', type=str, default="val")
 
     # Model Hyperparameters
     parser.add_argument('--turn_angle', type=int, default=30)
@@ -68,7 +69,7 @@ def get_args():
     parser.add_argument("--text_threshold", type=float, default=0.25)
     parser.add_argument("--nms_threshold", type=float, default=0.5)
 
-    parser.add_argument("--sam_variant", type=str, default="mobilesam",
+    parser.add_argument("--sam_variant", type=str, default="sam",
                         choices=['fastsam', 'mobilesam', "lighthqsam"])
     parser.add_argument("--detector", type=str, default="dino", 
                         choices=["yolo", "dino", "none"], 

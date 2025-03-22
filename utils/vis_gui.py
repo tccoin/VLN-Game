@@ -707,6 +707,22 @@ class ReconstructionWindow:
                             )
                         while (self.candidate_id != -1):
                             time.sleep(0.01)
+            # else:
+            #     gui.Application.instance.post_to_main_thread(
+            #         self.window, lambda: self.update_render(
+            #             depth,
+            #             color,
+            #             semantic, 
+            #             objects, 
+            #             frustum,
+            #             point_sum_points,
+            #             point_sum_colors,
+            #             traj,
+            #             plan_path,
+            #             vis_image,
+            #             Open3d_goal_pose,
+            #             candidate_id)
+            #             )
                         
 
 

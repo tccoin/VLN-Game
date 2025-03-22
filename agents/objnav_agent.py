@@ -221,7 +221,7 @@ class ObjectNav_Agent(Agent):
      
 
 
-    def act(self, observations: Observations, agent_state, send_queue= Queue(), receive_queue= Queue()):
+    def act(self, observations: Observations, agent_state, send_queue=None, receive_queue=None):
         time_step_info = 'Mapping time (s): \n'
 
         preprocess_s_time = time.time()
@@ -399,7 +399,7 @@ class ObjectNav_Agent(Agent):
         ##### Calculate the similarities 
         # ------------------------------------------------------------------
             
-        if not send_queue.empty():
+        if send_queue is not None and not send_queue.empty():
             text_input, self.is_running = send_queue.get()
             if text_input is not None:
                 self.text_queries = text_input
@@ -700,20 +700,21 @@ class ObjectNav_Agent(Agent):
         if self.args.visualize:
             if cfg.filter_interval > 0 and (self.l_step+1) % cfg.filter_interval == 0:
                 self.point_sum.voxel_down_sample(0.05)
-            receive_queue.put([image_rgb, 
-                                depth, 
-                                self.annotated_image , 
-                                self.objects.to_serializable(), 
-                                np.asarray(self.point_sum.points), 
-                                np.asarray(self.point_sum.colors), 
-                                self.Open3D_traj,
-                                self.episode_n,
-                                plan_path,
-                                transform_rgb_bgr(vis_image),
-                                Open3d_goal_pose,
-                                time_step_info, 
-                                candidate_id]
-                                )    
+            if receive_queue is not None:
+                receive_queue.put([image_rgb, 
+                                    depth, 
+                                    self.annotated_image , 
+                                    self.objects.to_serializable(), 
+                                    np.asarray(self.point_sum.points), 
+                                    np.asarray(self.point_sum.colors), 
+                                    self.Open3D_traj,
+                                    self.episode_n,
+                                    plan_path,
+                                    transform_rgb_bgr(vis_image),
+                                    Open3d_goal_pose,
+                                    time_step_info, 
+                                    candidate_id]
+                                    )
 
         self.last_action = action
         
