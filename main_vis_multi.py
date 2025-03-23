@@ -80,81 +80,83 @@ def VLNav_env(args, config, rank, dataset, send_queue, receive_queue, gui_queue=
     # for count_episodes in trange(num_episodes):
     
     while count_episodes < num_episodes:
+        try:
+            obs = env.reset()
 
-        obs = env.reset()
+            scene_id = get_scene_id(env.current_episode.scene_id)
+            episode_id = env.current_episode.episode_id
+            episode_label = f'{scene_id}_{episode_id}'
+            print("Running episode: ", episode_label)
 
-        scene_id = get_scene_id(env.current_episode.scene_id)
-        episode_id = env.current_episode.episode_id
-        episode_label = f'{scene_id}_{episode_id}'
-        print("Running episode: ", episode_label)
+            agent.reset(episode_label)
 
-        agent.reset(episode_label)
+            video_save_path = '{}/{}/episodes_video/eps_{}_vis.mp4'.format(
+                args.dump_location, args.exp_name, episode_label)
+            frames = []
 
-        video_save_path = '{}/{}/episodes_video/eps_{}_vis.mp4'.format(
-            args.dump_location, args.exp_name, episode_label)
-        frames = []
-
-        # skip if video_save_path exists
-        if os.path.exists(video_save_path):
-            print(f"Skiping {episode_label}... Video already exists: {video_save_path}")
-            continue
-    
-        count_steps = 0
-        start_ep = time.time()
-        while not env.episode_over:
-
-            dd_s_time = time.time()
-
-            agent_state = env.sim.get_agent_state()
-            action = agent.act(obs, agent_state, send_queue, gui_queue)
-            
-            # cv2.imshow("Thread {}".format(rank), vis_image)
-            # cv2.waitKey(1)
-
-            # cv2.imshow("RGB0", annotated_image)
-                
-            if action == None:
+            # skip if video_save_path exists
+            if os.path.exists(video_save_path):
+                print(f"Skiping {episode_label}... Video already exists: {video_save_path}")
                 continue
-            obs = env.step(action)
-
-            count_steps += 1
-            
-            dd_e_time = time.time()
-            # print(' time:%.3fs\n'%(dd_e_time - dd_s_time)) 
-
-        infos = 0
-        if (
-            action == 0 and 
-            env.get_metrics()["spl"]
-        ):
-            # print("you successfully navigated to destination point")
-            infos = 1 #success
-        else:
-            # print("your navigation was not successful")
-            if count_steps >= config.ENVIRONMENT.MAX_EPISODE_STEPS - 1:
-                infos = 2 # exploration
-            elif agent.replan_count > 20:
-                infos = 3 # collision
-            else:
-                infos = 4 # detection
-
-        count_episodes += 1
-
-        metrics = env.get_metrics()
-
-        extra_info = {
-            'episode_label': episode_label,
-            'objectgoal': obs['objectgoal'][0],
-            'upstair_flag': agent.upstair_flag,
-            'downstair_flag': agent.downstair_flag,
-        }
-
-        if args.save_video:
-            # imageio.mimsave(video_save_path, frames, fps=2)
-            imageio.mimsave(video_save_path, agent.vis_frames, fps=2)
-            print(f"Video saved to {video_save_path}")
         
-        receive_queue.put([metrics, infos, count_steps, extra_info])
+            count_steps = 0
+            start_ep = time.time()
+            while not env.episode_over:
+
+                dd_s_time = time.time()
+
+                agent_state = env.sim.get_agent_state()
+                action = agent.act(obs, agent_state, send_queue, gui_queue)
+                
+                # cv2.imshow("Thread {}".format(rank), vis_image)
+                # cv2.waitKey(1)
+
+                # cv2.imshow("RGB0", annotated_image)
+                    
+                if action == None:
+                    continue
+                obs = env.step(action)
+
+                count_steps += 1
+                
+                dd_e_time = time.time()
+                # print(' time:%.3fs\n'%(dd_e_time - dd_s_time)) 
+
+            infos = 0
+            if (
+                action == 0 and 
+                env.get_metrics()["spl"]
+            ):
+                # print("you successfully navigated to destination point")
+                infos = 1 #success
+            else:
+                # print("your navigation was not successful")
+                if count_steps >= config.ENVIRONMENT.MAX_EPISODE_STEPS - 1:
+                    infos = 2 # exploration
+                elif agent.replan_count > 20:
+                    infos = 3 # collision
+                else:
+                    infos = 4 # detection
+
+            count_episodes += 1
+
+            metrics = env.get_metrics()
+
+            extra_info = {
+                'episode_label': episode_label,
+                'objectgoal': obs['objectgoal'][0],
+                'upstair_flag': agent.upstair_flag,
+                'downstair_flag': agent.downstair_flag,
+            }
+
+            if args.save_video:
+                # imageio.mimsave(video_save_path, frames, fps=2)
+                imageio.mimsave(video_save_path, agent.vis_frames, fps=2)
+                print(f"Video saved to {video_save_path}")
+            
+            receive_queue.put([metrics, infos, count_steps, extra_info])
+        except Exception as e:
+            print("Error in episode {}: {}".format(count_episodes, e))
 
     return
 
@@ -292,7 +294,17 @@ def main():
                 send_queue_dummy = mp_ctx.Queue()
                 proc = mp_ctx.Process(target=VLNav_env, args=(args, proc_config, i, dataset, send_queue_dummy, receive_queue))
             processes.append(proc)
-            proc.start()
+
+            start_success = False
+            while not start_success:
+                try:
+                    proc.start()
+                    start_success = True
+                except Exception as e:
+                    print(f"Error starting process {i} on GPU {gpu_id}: {e}, retrying...")
+                    time.sleep(1)
+                    
+
             print(f"Process {i} on GPU {gpu_id} started")
             
             # compare video number with all_info.log
