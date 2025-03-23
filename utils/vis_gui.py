@@ -363,7 +363,11 @@ class ReconstructionWindow:
                 self.args.max_depth).to_legacy())
         self.input_color_image.update_image(input_color.to_legacy())
         self.semantic_image.update_image(semantic_image.to_legacy())
-        self.map_image.update_image(vis_image.to_legacy())
+        # check if type is numpy.ndarray
+        if isinstance(vis_image, np.ndarray):
+            self.map_image.update_image(vis_image)
+        else:
+            self.map_image.update_image(vis_image.to_legacy())
 
         # add the camera
         self.widget3d.scene.remove_geometry("frustum")
@@ -475,8 +479,8 @@ class ReconstructionWindow:
 
     def on_top_rendered(self, image):
         
-        dump_dir = "{}/{}/episodes/{}".format(self.args.dump_location,
-                                    self.args.exp_name, self.episode_n)
+        dump_dir = "{}/{}/episodes/{}/top_render".format(self.args.dump_location,
+                                    self.args.exp_name, self.episode_label)
         if not os.path.exists(dump_dir):
             os.makedirs(dump_dir)
         image_filename = '{}/Vis-{}.jpeg'.format(dump_dir, self.idx)
@@ -531,8 +535,8 @@ class ReconstructionWindow:
 
     def on_image_rendered(self, image):
         
-        dump_dir = "{}/{}/episodes/{}".format(self.args.dump_location,
-                                    self.args.exp_name, self.episode_n)
+        dump_dir = "{}/{}/episodes/{}/image_render".format(self.args.dump_location,
+                                    self.args.exp_name, self.episode_label)
         if not os.path.exists(dump_dir):
             os.makedirs(dump_dir)
         image_filename = '{}/Vis-{}.jpeg'.format(dump_dir, self.candidate_id)
@@ -621,12 +625,13 @@ class ReconstructionWindow:
         start = time.time()
         while not self.is_done:
             if not self.receive_queue.empty():
-                image_rgb, image_depth, annotated_image, objects, point_sum_points, point_sum_colors, traj, episode_n, plan_path, vis_image, Open3d_goal_pose, time_step_info, candidate_id = self.receive_queue.get()
+                image_rgb, image_depth, annotated_image, objects, point_sum_points, point_sum_colors, traj, episode_n, episode_label, plan_path, vis_image, Open3d_goal_pose, time_step_info, candidate_id = self.receive_queue.get()
                 
                 if episode_n > self.episode_n:
                     self.idx = 0
                     self.widget3d.scene.clear_geometry()
                     self.episode_n = episode_n
+                    self.episode_label = episode_label
                     self.full_pcd_poinst = []
                     self.full_pcd_colors = []
                            

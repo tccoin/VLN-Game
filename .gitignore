@@ -25,3 +25,4 @@ configs/vlobjectnav_hm3d_goat.yaml
 configs/vlobjectnav_replica.yaml
 
 third_party
+batch.log

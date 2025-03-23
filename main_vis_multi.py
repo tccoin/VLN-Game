@@ -7,6 +7,8 @@ sys.path.append(".")
 import time
 import random
 import logging
+import re
+import json
 
 from typing import Dict
 import numpy as np
@@ -35,6 +37,7 @@ from habitat.sims.habitat_simulator.actions import (
 
 from utils.shortest_path_follower import ShortestPathFollowerCompat
 
+from constants import category_to_id
 
 # Gui
 import open3d.visualization.gui as gui
@@ -44,6 +47,12 @@ from utils.vis_gui import ReconstructionWindow
 def transform_rgb_bgr(image):
     return image[:, :, [2, 1, 0]]
 
+def get_scene_id(scene_path):
+    # Get the scene_id from the path
+    scene_id = scene_path.split("/")[-1]
+    scene_id = re.sub(r'\.basis\.glb$', '', scene_id)
+    return scene_id
+
 def VLNav_env(args, config, rank, dataset, send_queue, receive_queue, gui_queue=None):
 
     args.rank = rank
@@ -51,13 +60,14 @@ def VLNav_env(args, config, rank, dataset, send_queue, receive_queue, gui_queue=
     np.random.seed(config.SEED+rank)
     torch.manual_seed(config.SEED+rank)
     torch.set_grad_enabled(False)
+
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu_id)
+    torch.cuda.set_device(args.gpu_id)
     
     env = Env(config, dataset)
-    env.episodes = env.episodes[:10]
     num_episodes = len(env.episodes)
-    print("num_episodes: ", num_episodes)
+    print("total number of episodes: ", num_episodes)
     print([ep.episode_id for ep in env.episodes])
-    receive_queue.put(num_episodes)
     
     
     follower = ShortestPathFollowerCompat(
@@ -70,9 +80,25 @@ def VLNav_env(args, config, rank, dataset, send_queue, receive_queue, gui_queue=
     # for count_episodes in trange(num_episodes):
     
     while count_episodes < num_episodes:
-        obs = env.reset()
-        agent.reset()
 
+        obs = env.reset()
+
+        scene_id = get_scene_id(env.current_episode.scene_id)
+        episode_id = env.current_episode.episode_id
+        episode_label = f'{scene_id}_{episode_id}'
+        print("Running episode: ", episode_label)
+
+        agent.reset(episode_label)
+
+        video_save_path = '{}/{}/episodes_video/eps_{}_vis.mp4'.format(
+            args.dump_location, args.exp_name, episode_label)
+        frames = []
+
+        # skip if video_save_path exists
+        if os.path.exists(video_save_path):
+            print(f"Skiping {episode_label}... Video already exists: {video_save_path}")
+            continue
+    
         count_steps = 0
         start_ep = time.time()
         while not env.episode_over:
@@ -115,8 +141,20 @@ def VLNav_env(args, config, rank, dataset, send_queue, receive_queue, gui_queue=
         count_episodes += 1
 
         metrics = env.get_metrics()
+
+        extra_info = {
+            'episode_label': episode_label,
+            'objectgoal': obs['objectgoal'][0],
+            'upstair_flag': agent.upstair_flag,
+            'downstair_flag': agent.downstair_flag,
+        }
+
+        if args.save_video:
+            # imageio.mimsave(video_save_path, frames, fps=2)
+            imageio.mimsave(video_save_path, agent.vis_frames, fps=2)
+            print(f"Video saved to {video_save_path}")
         
-        receive_queue.put([metrics, infos, count_steps])
+        receive_queue.put([metrics, infos, count_steps, extra_info])
 
     return
 
@@ -132,12 +170,17 @@ def main():
     
     args = get_args()
     
-    args.exp_name = "objectnav-"+ args.detector
+    args.exp_name = args.exp_name + "-" + args.detector
     
     log_dir = "{}/logs/{}/".format(args.dump_location, args.exp_name)
 
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
+    
+    video_save_dir = '{}/{}/episodes_video'.format(
+                args.dump_location, args.exp_name)
+    if not os.path.exists(video_save_dir):
+        os.makedirs(video_save_dir)
 
     logging.basicConfig(
         filename=log_dir + "eval.log",
@@ -161,6 +204,10 @@ def main():
     dataset = make_dataset(config_env.DATASET.TYPE, config=config_env.DATASET)
     if "*" in config_env.DATASET.CONTENT_SCENES:
         scenes = dataset.get_scenes_to_load(config_env.DATASET)
+    
+    n_gpu = torch.cuda.device_count()
+    args.num_processes = args.num_processes * n_gpu
+    print("Number of all threads: ", args.num_processes)
 
     if len(scenes) > 0:
         assert len(scenes) >= args.num_processes, (
@@ -173,48 +220,31 @@ def main():
         for i in range(len(scenes) % args.num_processes):
             scene_split_sizes[i] += 1
 
+
+    args.num_processes = int(args.num_processes/n_gpu)
+    print("Number of GPUs: ", n_gpu)
+    print("Number of processes on each GPU: ", args.num_processes)
     print("Scenes per thread:")
-    num_episode = []
+    for gpu_id in range(n_gpu):
+        for i in range(args.num_processes):
+            n_scene = sum(scene_split_sizes[:i*n_gpu+gpu_id+1])-sum(scene_split_sizes[:i*n_gpu+gpu_id])
+            print(f'gpu_id: {gpu_id}, process: {i}, n_scene: {n_scene}')
+
+    per_episode_error = []
+    # read all_info.log
+    if os.path.exists(log_dir + "all_info.log"):
+        with open(log_dir + "all_info.log", 'r') as fp:
+            lines = fp.readlines()
+            for line in lines:
+                line = line.strip()
+                if line != "":
+                    per_episode_error.append(json.loads(line))
+    episode_done_list = [x["episode"] for x in per_episode_error]
+    print("{} episode info from all_info.log is loaded".format(len(per_episode_error)))
+
+    n_episode_done_list = []
+    num_episode_left_list = []
     processes = []
-    for i in range(args.num_processes):
-        proc_config = config_env.clone()
-        proc_config.defrost()
-        proc_config.DATASET.SPLIT = args.split
-
-        if len(scenes) > 0:
-            proc_config.DATASET.CONTENT_SCENES = scenes[
-                sum(scene_split_sizes[:i]):
-                sum(scene_split_sizes[:i + 1])
-            ]
-            print("Thread {}: {}".format(i, proc_config.DATASET.CONTENT_SCENES))
-
-        dataset = make_dataset(proc_config.DATASET.TYPE, config=proc_config.DATASET)
-        proc_config.SIMULATOR.SCENE = dataset.episodes[0].scene_id
-        proc_config.freeze()
-
-        # thread = threading.Thread(
-        #         target=VLNav_env,
-        #         args=(
-        #             args,
-        #             proc_config,
-        #             i,
-        #             dataset,
-        #             receive_queue,
-        #         ),
-        #     )
-        
-        # thread.start()
-        if i==0:
-            # send the actual send_queue
-            proc = mp_ctx.Process(target=VLNav_env, args=(args, proc_config, i, dataset, send_queue, receive_queue, gui_queue))
-        else:
-            # send a dummy send queue
-            send_queue_dummy = mp_ctx.Queue()
-            proc = mp_ctx.Process(target=VLNav_env, args=(args, proc_config, i, dataset, send_queue_dummy, receive_queue))
-        processes.append(proc)
-        proc.start()
-
-        num_episode.append(receive_queue.get())
 
     if args.visualize:
         # Create a thread for the Open3D visualization
@@ -222,21 +252,102 @@ def main():
         visualization = threading.Thread(target=visualization_thread, args=(args, send_queue, gui_queue))
         visualization.start()
 
-    num_episodes = sum(num_episode)
-    print("received num_episodes: ", num_episodes)
+    for gpu_id in range(n_gpu):
+        for i in range(args.num_processes):
+            proc_config = config_env.clone()
+            proc_config.defrost()
+            proc_config.DATASET.SPLIT = args.split
+
+            args.gpu_id = gpu_id
+            proc_config.SIMULATOR.HABITAT_SIM_V0.GPU_DEVICE_ID = gpu_id
+
+            if len(scenes) > 0:
+                proc_config.DATASET.CONTENT_SCENES = scenes[
+                    sum(scene_split_sizes[:i*n_gpu+gpu_id]):
+                    sum(scene_split_sizes[:i*n_gpu+gpu_id+1])
+                ]
+                print("GPU {},Thread {}: {}".format(gpu_id, i, proc_config.DATASET.CONTENT_SCENES))
+
+            dataset = make_dataset(proc_config.DATASET.TYPE, config=proc_config.DATASET)
+            proc_config.SIMULATOR.SCENE = dataset.episodes[0].scene_id
+            proc_config.freeze()
+
+            # thread = threading.Thread(
+            #         target=VLNav_env,
+            #         args=(
+            #             args,
+            #             proc_config,
+            #             i,
+            #             dataset,
+            #             receive_queue,
+            #         ),
+            #     )
+            
+            # thread.start()
+            if i==0 and gpu_id==0:
+                # send the actual send_queue
+                proc = mp_ctx.Process(target=VLNav_env, args=(args, proc_config, i, dataset, send_queue, receive_queue, gui_queue))
+            else:
+                # send a dummy send queue
+                send_queue_dummy = mp_ctx.Queue()
+                proc = mp_ctx.Process(target=VLNav_env, args=(args, proc_config, i, dataset, send_queue_dummy, receive_queue))
+            processes.append(proc)
+            proc.start()
+            print(f"Process {i} on GPU {gpu_id} started")
+            
+            # compare video number with all_info.log
+            # remove video if not in all_info.log
+            print(f"Check existing videos...")
+            env = Env(proc_config, dataset)
+            n_episode_done = 0
+            n_episode_left = 0
+            for i in range(len(env.episodes)):
+                scene_id = get_scene_id(env.episodes[i].scene_id)
+                episode_id = env.episodes[i].episode_id
+                episode_label = f'{scene_id}_{episode_id}'
+                video_save_path = '{}/{}/episodes_video/eps_{}_vis.mp4'.format(args.dump_location, args.exp_name, episode_label)
+                if os.path.exists(video_save_path):
+                    if episode_label in episode_done_list:
+                        print(f"Episode {episode_label} found in all_info.log.")
+                        n_episode_done += 1
+                    else:
+                        print(f"Episode {episode_label} missing in all_info.log. Video file removed.")
+                        os.remove(video_save_path)
+                        n_episode_left += 1
+                else:
+                    print(f"Episode {episode_label} has no video file.")
+                    n_episode_left += 1
+            print(f"Number of episodes done: {n_episode_done}, Number of episodes left: {n_episode_left}")  
+
+            n_episode_done_list.append(n_episode_done)
+            num_episode_left_list.append(n_episode_left)
+            env.close()
+
+    print("All processes started!")
+    sum_done = sum(n_episode_done_list)
+    sum_left = sum(num_episode_left_list)
+    num_episodes = sum_done + sum_left
+    print(f"Total number of episodes: {num_episodes}")
+    print(f"Number of episodes done: {sum_done}")
+    print(f"Number of episodes left: {sum_left}")
+    print(f"Check with all_info.log: {len(per_episode_error)}=={sum_done}")
     logging.info(num_episodes)
     count_episodes = 0
     agg_metrics: Dict = defaultdict(float)
     total_fail = []
+    last_log = per_episode_error[-1]
+    for i, result_status in enumerate(['success', 'exploration', 'collision', 'detection']):  
+        for j in range(last_log[result_status]):
+            total_fail.append(i+1)
     total_steps = 0
     start = time.time()
     while count_episodes < num_episodes:
-        
         if not receive_queue.empty():
             print("received")
             count_episodes += 1
-            metrics, infos, count_steps = receive_queue.get()
-            
+            metrics, infos, count_steps, extra_info = receive_queue.get()
+            episode_label = extra_info['episode_label']
+
             total_steps += count_steps
             
             for m, v in metrics.items():
@@ -248,6 +359,7 @@ def main():
             end = time.time()
             time_elapsed = time.gmtime(end - start)
             log = " ".join([
+                "Episode: {}".format(episode_label),
                 "Time: {0:0=2d}d".format(time_elapsed.tm_mday - 1),
                 "{},".format(time.strftime("%Hh %Mm %Ss", time_elapsed)),
                 "num timesteps {},".format(total_steps ),
@@ -267,6 +379,25 @@ def main():
 
             print(log)
             logging.info(log)
+
+            case_summary = {}
+            case_summary["episode"] = episode_label
+            case_summary["habitat_success"] = metrics["success"]
+            case_summary['distance_to_goal'] = metrics['distance_to_goal']
+            case_summary['spl'] = metrics['spl']
+            case_summary['success'] = total_fail.count(1)
+            case_summary['exploration'] = total_fail.count(2)
+            case_summary['collision'] = total_fail.count(3)
+            case_summary['detection'] = total_fail.count(4)
+            case_summary["upstair_flag"] = extra_info['upstair_flag']
+            case_summary["downstair_flag"] = extra_info['downstair_flag']
+            case_summary["count_steps"] = count_steps
+            case_summary["target"] = category_to_id[extra_info['objectgoal']]
+            per_episode_error.append(case_summary)
+            with open(log_dir + "all_info.log", 'w') as fp:
+                for item in per_episode_error:
+                    # write each item on a new line
+                    fp.write(json.dumps(item) + "\n")
             
 
 if __name__ == "__main__":

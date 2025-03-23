@@ -94,7 +94,7 @@ class ObjectNav_Agent(Agent):
 
         self.device = "cuda:{}".format(self.args.gpu_id)
 
-        self.dump_dir = "{}/dump/{}/".format(args.dump_location, args.exp_name)
+        self.dump_dir = "{}/{}/".format(args.dump_location, args.exp_name)
 
         if not os.path.exists(self.dump_dir):
             os.makedirs(self.dump_dir)
@@ -141,8 +141,9 @@ class ObjectNav_Agent(Agent):
         self.vis_frames = []
         # ------------------------------------------------------------------
 
-    def reset(self) -> None:
+    def reset(self, episode_label) -> None:
         self.episode_n += 1
+        self.episode_label = episode_label
         self.init_map_and_pose()
         self.init_map_and_navigation_param()
         ### for vidoe saving ###
@@ -660,10 +661,10 @@ class ObjectNav_Agent(Agent):
             one_more_point = (vector / np.linalg.norm(vector)) * 0.5 + plan_path[-1]
             one_more_point[1] = plan_path[-1][1]
             # if one_more_point[1] >= self.Open3d_goal_pose_old[1]:
-            print("init agent pos:", self.init_agent_position)
-            print("goal prev:", self.habitat_goal_pose)
+            # print("init agent pos:", self.init_agent_position)
+            # print("goal prev:", self.habitat_goal_pose)
             self.habitat_goal_pose = one_more_point
-            print("goal new:", self.habitat_goal_pose)
+            # print("goal new:", self.habitat_goal_pose)
             plan_path = self.search_navigable_path(
                 one_more_point
             )
@@ -719,6 +720,7 @@ class ObjectNav_Agent(Agent):
                                     np.asarray(self.point_sum.colors), 
                                     self.Open3D_traj,
                                     self.episode_n,
+                                    self.episode_label,
                                     plan_path,
                                     transform_rgb_bgr(vis_image),
                                     Open3d_goal_pose,
@@ -732,7 +734,7 @@ class ObjectNav_Agent(Agent):
         # transfer_time = time.time()
         # time_step_info += 'transfer data time:%.3fs\n'%(transfer_time - dd_map_time)
 
-        # cv2.imshow("episode_n {}".format(self.episode_n), self.annotated_image)
+        # cv2.imshow("episode_n {}".format(self.episode_label), self.annotated_image)
         # cv2.waitKey(1)
         # print(time_step_info)
 
@@ -775,8 +777,8 @@ class ObjectNav_Agent(Agent):
         if self.args.print_images or self.args.visualize:
             self.annotated_image  = vis_result_fast(image, detections, self.classes)
             # save only annotated image
-            ep_dir = '{}episodes/{}/eps_{}/'.format(
-                self.dump_dir, self.args.rank, self.episode_n)
+            ep_dir = '{}episodes/{}/annotated/'.format(
+                self.dump_dir, self.episode_label)
             if not os.path.exists(ep_dir):
                 os.makedirs(ep_dir)
             fn = ep_dir + 'Annotated-{}.png'.format(self.l_step)
@@ -1357,8 +1359,8 @@ class ObjectNav_Agent(Agent):
 
         vis_image_rgb[0:480, 640:1280] = depth_color
         
-        ep_dir = '{}episodes/{}/eps_rgbd_{}/'.format(
-            self.dump_dir, self.args.rank, self.episode_n)
+        ep_dir = '{}episodes/{}/rgbd/'.format(
+            self.dump_dir, self.episode_label)
         if not os.path.exists(ep_dir):
             os.makedirs(ep_dir)
         fn = ep_dir + 'Vis-{}.png'.format(self.l_step)
@@ -1370,8 +1372,8 @@ class ObjectNav_Agent(Agent):
         # Apply a colormap (e.g., COLORMAP_JET)
         depth_color = cv2.applyColorMap(depth_normalized, cv2.COLORMAP_JET)
 
-        ep_dir = '{}episodes/{}/eps_rgbd_{}/'.format(
-            self.dump_dir, self.args.rank, self.episode_n)
+        ep_dir = '{}episodes/{}/similarity/'.format(
+            self.dump_dir, self.episode_label)
         if not os.path.exists(ep_dir):
             os.makedirs(ep_dir)
         fn = ep_dir + 'Vis-simi-{}.png'.format(self.l_step)
@@ -1474,14 +1476,14 @@ class ObjectNav_Agent(Agent):
         
         if self.args.print_images:
             ep_dir = '{}episodes/{}/eps_{}/'.format(
-                self.dump_dir, self.args.rank, self.episode_n)
+                self.dump_dir, self.args.rank, self.episode_label)
             if not os.path.exists(ep_dir):
                 os.makedirs(ep_dir)
             fn = ep_dir + 'Vis-{}.png'.format(self.l_step)
             cv2.imwrite(fn, vis_image_rgb)
             cv2.imwrite(self.dump_dir + "current_state.png", vis_image_rgb)
 
-        # cv2.imshow("episode_n {}".format(self.episode_n), vis_image_show)
+        # cv2.imshow("episode_n {}".format(self.episode_label), vis_image_show)
         # cv2.waitKey(1)
 
         return vis_image_show

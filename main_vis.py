@@ -5,11 +5,12 @@ import os
 import random
 import logging
 
+import json
 from typing import Dict
 import numpy as np
 import torch
 import habitat
-from habitat import Env, logger
+from habitat import Env, logger, make_dataset
 from arguments import get_args
 from habitat.config.default import get_config
 
@@ -25,6 +26,7 @@ from multiprocessing import Process, Queue
 import sys
 sys.path.append(".")
 import time
+import re
 
 from constants import category_to_id
 
@@ -43,6 +45,12 @@ from utils.vis_gui import ReconstructionWindow
 
 def transform_rgb_bgr(image):
     return image[:, :, [2, 1, 0]]
+
+def get_scene_id(scene_path):
+    # Get the scene_id from the path
+    scene_id = scene_path.split("/")[-1]
+    scene_id = re.sub(r'\.basis\.glb$', '', scene_id)
+    return scene_id
 
 # def generate_point_cloud(window):
 def main(args, send_queue, receive_queue):
@@ -94,42 +102,95 @@ def main(args, send_queue, receive_queue):
         num_episodes = min(args.episode_count, len(env.episodes))
     print("num_episodes: ", num_episodes)
 
+    per_episode_error = []
+    # read all_info.log
+    if os.path.exists(log_dir + "all_info.log"):
+        with open(log_dir + "all_info.log", 'r') as fp:
+            lines = fp.readlines()
+            for line in lines:
+                line = line.strip()
+                if line != "":
+                    per_episode_error.append(json.loads(line))
+    episode_done_list = [x["episode"] for x in per_episode_error]
+    print("{} episode info from all_info.log is loaded".format(len(per_episode_error)))
+
     fail_case = {}
     fail_case['collision'] = 0
     fail_case['success'] = 0
     fail_case['detection'] = 0
     fail_case['exploration'] = 0
+    last_log = per_episode_error[-1]
+    for i, result_status in enumerate(['success', 'exploration', 'collision', 'detection']):  
+        fail_case[result_status] = last_log[result_status]
 
-    per_episode_error = []
-    
+    if "*" in config.DATASET.CONTENT_SCENES:
+        dataset = make_dataset(config.DATASET.TYPE, config=config.DATASET)
+        scenes = dataset.get_scenes_to_load(config.DATASET)
+    scenes = config.DATASET.CONTENT_SCENES
+    print("Loaded scenes: ", scenes)
     count_episodes = 0
     # for count_episodes in trange(num_episodes):
     start = time.time()
     
     # per episode error log
     
+    dataset = make_dataset(config.DATASET.TYPE, config=config.DATASET)
+    config.SIMULATOR.SCENE = dataset.episodes[0].scene_id
+    config.freeze()
+
+    print(f"Check existing videos...")
+    n_episode_done = 0
+    n_episode_left = 0
+    for i in range(len(env.episodes)):
+        scene_id = get_scene_id(env.episodes[i].scene_id)
+        episode_id = env.episodes[i].episode_id
+        episode_label = f'{scene_id}_{episode_id}'
+        video_save_path = '{}/{}/episodes_video/eps_{}_vis.mp4'.format(args.dump_location, args.exp_name, episode_label)
+        if os.path.exists(video_save_path):
+            if episode_label in episode_done_list:
+                print(f"Episode {episode_label} found in all_info.log.")
+                n_episode_done += 1
+            else:
+                print(f"Episode {episode_label} missing in all_info.log. Video file removed.")
+                os.remove(video_save_path)
+                n_episode_left += 1
+        else:
+            print(f"Episode {episode_label} has no video file.")
+            n_episode_left += 1
+    sum_done = n_episode_done + n_episode_left
+    print(f"Number of episodes done: {n_episode_done}, Number of episodes left: {n_episode_left}")  
+    print(f"Total number of episodes: {sum_done}")
+    print(f"Check with all_info.log: {len(per_episode_error)}=={sum_done}")
+
+
     while count_episodes < num_episodes:
         obs = env.reset()
+
+        scene_id = get_scene_id(env.current_episode.scene_id)
+        episode_id = env.current_episode.episode_id
+        episode_label = f'{scene_id}_{episode_id}'
+        print("Running episode: ", episode_label)
         
-        agent.reset()
+        agent.reset(episode_label)
         # print("Instrcution: "+ obs["instruction"]['text'])
 
         image = transform_rgb_bgr(obs["rgb"])  # 224*224*3
         image_rgb = cv2.cvtColor(obs["rgb"], cv2.COLOR_BGR2RGB) 
         # cv2.imshow("RGB0", obs["rgb"])
 
+        video_save_path = '{}/{}/episodes_video/eps_{}_vis.mp4'.format(
+            args.dump_location, args.exp_name, episode_label)
+        frames = []
 
-        if args.save_video:
-            video_save_path = '{}/{}/episodes_video/eps_{}_vis.mp4'.format(
-                args.dump_location, args.exp_name, agent.episode_n)
-            frames = []
+        # skip if video_save_path exists
+        if os.path.exists(video_save_path):
+            print(f"Skiping... Video already exists: {video_save_path}")
+            continue
 
         count_steps = 0
         start_ep = time.time()
         while not env.episode_over:
-
             # dd_s_time = time.time()
-  
             if count_episodes < args.skip_frames:
                 action = 0 # NOTE multy: debug specific episode
             else:
@@ -139,10 +200,6 @@ def main(args, send_queue, receive_queue):
                     action = agent.act(obs, agent_state, send_queue, receive_queue)
                 else:
                     action = agent.keyboard_actor(obs, agent_state, send_queue, receive_queue)
-            
-            # not skipping first 5 episodes
-            # agent_state = env.sim.get_agent_state()
-            # action = agent.act(obs, agent_state, send_queue, receive_queue)
 
             if action == None:
                 continue # NOTE multy: why skip action?
@@ -195,8 +252,8 @@ def main(args, send_queue, receive_queue):
                     agg_metrics[m + "/" + str(sub_m)] += sub_v
             else:
                 agg_metrics[m] += v
-        
         case_summary = {}
+        case_summary["episode"] = episode_label
         case_summary["habitat_success"] = env.get_metrics()["success"]
         case_summary['distance_to_goal'] = metrics['distance_to_goal']
         case_summary['spl'] = metrics['spl']
@@ -209,7 +266,7 @@ def main(args, send_queue, receive_queue):
         with open(log_dir + "all_info.log", 'w') as fp:
             for item in per_episode_error:
                 # write each item on a new line
-                fp.write("%s\n" % item)
+                fp.write(json.dumps(item) + "\n")
 
         log += "Metrics: "
         log += ", ".join(k + ": {:.3f}".format(v / count_episodes) for k, v in agg_metrics.items()) + " ---({:.0f}/{:.0f})".format(count_episodes, num_episodes)

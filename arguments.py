@@ -26,7 +26,7 @@ def get_args():
                                 (default: 0)""")
     parser.add_argument('--print_images', type=int, default=0,
                         help='1: save visualization as images')
-    parser.add_argument('--save_video', type=int, default=0,
+    parser.add_argument('--save_video', type=int, default=1,
                         help='1: save visualization as video')
     parser.add_argument('-n', '--num_processes', type=int, default=1)
     parser.add_argument('--rank', type=int, default=0)
@@ -101,7 +101,7 @@ def get_args():
                         help="if set, the planner will use the Fast Marching Method")
     
     # debugging
-    parser.add_argument('--skip_frames', type=int, default=5,
+    parser.add_argument('--skip_frames', type=int, default=0,
                         help="skip the first n frames")
     parser.add_argument('--keyboard_actor', action="store_true",
                         help="if set, the actor will be controlled by the keyboard")

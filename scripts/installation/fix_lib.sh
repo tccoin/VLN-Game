@@ -9,3 +9,7 @@ cp nav.py /dependencies/habitat-lab/habitat/tasks/nav/
 
 pip install supervision==0.14.0
 conda install -y pytorch::faiss-gpu
+# 4.50 has a bug: https://github.com/huggingface/transformers/issues/36888
+pip install transformers==4.49.0
+pip install scipy==1.11.2
+pip install opencv-python==4.9.0.80
