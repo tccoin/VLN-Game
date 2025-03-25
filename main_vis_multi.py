@@ -97,6 +97,7 @@ def VLNav_env(args, config, rank, dataset, send_queue, receive_queue, gui_queue=
             # skip if video_save_path exists
             if os.path.exists(video_save_path):
                 print(f"Skiping {episode_label}... Video already exists: {video_save_path}")
+                count_episodes += 1
                 continue
         
             count_steps = 0
@@ -207,7 +208,7 @@ def main():
     if "*" in config_env.DATASET.CONTENT_SCENES:
         scenes = dataset.get_scenes_to_load(config_env.DATASET)
     
-    n_gpu = torch.cuda.device_count()
+    n_gpu = torch.cuda.device_count()-1
     args.num_processes = args.num_processes * n_gpu
     print("Number of all threads: ", args.num_processes)
 

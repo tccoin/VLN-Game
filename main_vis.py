@@ -133,8 +133,8 @@ def main(args, send_queue, receive_queue):
     start = time.time()
     
     # per episode error log
-    
     dataset = make_dataset(config.DATASET.TYPE, config=config.DATASET)
+    config.defrost()
     config.SIMULATOR.SCENE = dataset.episodes[0].scene_id
     config.freeze()
 
@@ -185,6 +185,7 @@ def main(args, send_queue, receive_queue):
         # skip if video_save_path exists
         if os.path.exists(video_save_path):
             print(f"Skiping... Video already exists: {video_save_path}")
+            count_episodes += 1
             continue
 
         count_steps = 0
