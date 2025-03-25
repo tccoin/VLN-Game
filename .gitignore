@@ -18,7 +18,6 @@ agents/dataset_mapping_agent.py
 agents/explored_agent.py
 human_eval.py
 replice.md
-setup*
 configs/objectnav_gibson.yaml
 configs/objectnav_hm3d_v2.yaml
 configs/vlobjectnav_hm3d_goat.yaml
